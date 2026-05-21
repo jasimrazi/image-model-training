@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:vision/model_updater.dart';
 
@@ -57,12 +58,18 @@ class ScannerScreen extends StatefulWidget {
   State<ScannerScreen> createState() => _ScannerState();
 }
 
+class ScanItem {
+  final File image;
+  final Map<String, dynamic> result;
+
+  ScanItem({required this.image, required this.result});
+}
+
 class _ScannerState extends State<ScannerScreen> {
   final _classifier = Classifier();
   final _picker = ImagePicker();
 
-  File? _image;
-  Map? _result;
+  final List<ScanItem> _items = [];
   bool _loading = false;
   bool _modelReady = false;
 
@@ -96,24 +103,45 @@ class _ScannerState extends State<ScannerScreen> {
     final picked = await _picker.pickImage(source: src, imageQuality: 85);
     if (picked == null) return;
 
-    setState(() {
-      _image = File(picked.path);
-      _loading = true;
-      _result = null;
-    });
+    await _processPickedImages([picked]);
+  }
+
+  Future<void> _scanMultipleFromGallery() async {
+    final picked = await _picker.pickMultiImage(imageQuality: 85);
+    if (picked.isEmpty) return;
+
+    await _processPickedImages(picked);
+  }
+
+  Future<void> _processPickedImages(List<XFile> pickedImages) async {
+    setState(() => _loading = true);
+
+    final newItems = <ScanItem>[];
 
     try {
-      final result = await _classifier.classify(_image!);
+      for (final picked in pickedImages) {
+        if (!mounted) return;
+
+        final focusedImage = await _focusObject(picked.path);
+        if (focusedImage == null) continue;
+
+        final image = File(focusedImage.path);
+        final result = await _classifier.classify(image);
+
+        newItems.add(ScanItem(image: image, result: result));
+
+        if (result['isRecognized'] == false) {
+          await _showUnknownDialog(image);
+        }
+      }
 
       if (!mounted) return;
       setState(() {
-        _result = result;
+        _items
+          ..clear()
+          ..addAll(newItems);
         _loading = false;
       });
-
-      if (result['isRecognized'] == false) {
-        _showUnknownDialog();
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -123,8 +151,31 @@ class _ScannerState extends State<ScannerScreen> {
     }
   }
 
-  void _showUnknownDialog() {
-    showDialog(
+  Future<CroppedFile?> _focusObject(String imagePath) {
+    return ImageCropper().cropImage(
+      sourcePath: imagePath,
+      compressQuality: 90,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: 'Focus on object',
+          toolbarColor: const Color(0xFF1A73E8),
+          toolbarWidgetColor: Colors.white,
+          initAspectRatio: CropAspectRatioPreset.original,
+          lockAspectRatio: false,
+          hideBottomControls: false,
+        ),
+        IOSUiSettings(
+          title: 'Focus on object',
+          aspectRatioLockEnabled: false,
+          resetAspectRatioEnabled: true,
+        ),
+        WebUiSettings(context: context),
+      ],
+    );
+  }
+
+  Future<void> _showUnknownDialog(File image) {
+    return showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Product not recognized'),
@@ -137,7 +188,7 @@ class _ScannerState extends State<ScannerScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _showLabelDialog();
+              _showLabelDialog(image);
             },
             child: const Text('Submit for training'),
           ),
@@ -146,7 +197,7 @@ class _ScannerState extends State<ScannerScreen> {
     );
   }
 
-  void _showLabelDialog() {
+  void _showLabelDialog(File image) {
     final ctrl = TextEditingController();
     showDialog(
       context: context,
@@ -170,7 +221,7 @@ class _ScannerState extends State<ScannerScreen> {
               final label = ctrl.text.trim().replaceAll(' ', '-'); // URL safe
               Navigator.pop(context);
 
-              if (label.isEmpty || _image == null) return;
+              if (label.isEmpty) return;
 
               // Optional: Show a loading snackbar while uploading
               ScaffoldMessenger.of(context).showSnackBar(
@@ -178,7 +229,7 @@ class _ScannerState extends State<ScannerScreen> {
               );
 
               final ok = await RoboflowService.uploadForTraining(
-                _image!,
+                image,
                 label,
               );
 
@@ -241,12 +292,19 @@ class _ScannerState extends State<ScannerScreen> {
       );
     }
 
-    if (_image == null) {
+    if (_items.isEmpty) {
       return Center(
-        child: Icon(
-          Icons.image_search_rounded,
-          size: 120,
-          color: Colors.grey.shade300,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.image_search_rounded,
+              size: 120,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 16),
+            const Text('Choose one or more images to scan'),
+          ],
         ),
       );
     }
@@ -254,26 +312,35 @@ class _ScannerState extends State<ScannerScreen> {
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
-        // Image Card
-        Card(
-          clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 4,
-          child: Stack(
+        for (final item in _items) ...[
+          _buildScanItem(item),
+          const SizedBox(height: 20),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildScanItem(ScanItem item) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Stack(
             alignment: Alignment.center,
             children: [
               Image.file(
-                _image!,
+                item.image,
                 fit: BoxFit.cover,
                 width: double.infinity,
-                height: 350,
+                height: 280,
               ),
               if (_loading)
                 Container(
                   width: double.infinity,
-                  height: 350,
+                  height: 280,
                   color: Colors.black45,
                   child: const Center(
                     child: CircularProgressIndicator(color: Colors.white),
@@ -281,65 +348,50 @@ class _ScannerState extends State<ScannerScreen> {
                 ),
             ],
           ),
-        ),
-
-        const SizedBox(height: 24),
-
-        // Results Section
-        if (_result != null && !_loading) ...[
-          const Text(
-            'Analysis Result',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildResultRow(
-                    'Recognized',
-                    _result!['isRecognized'] == true ? 'Yes' : 'No',
-                    _result!['isRecognized'] == true
-                        ? Colors.green
-                        : Colors.red,
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Analysis Result',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                _buildResultRow(
+                  'Recognized',
+                  item.result['isRecognized'] == true ? 'Yes' : 'No',
+                  item.result['isRecognized'] == true ? Colors.green : Colors.red,
+                ),
+                const Divider(height: 24),
+                _buildResultRow(
+                  'Label',
+                  item.result['label']?.toString() ?? 'Unknown',
+                  Colors.black87,
+                ),
+                const SizedBox(height: 8),
+                _buildResultRow(
+                  'Confidence',
+                  item.result['confidence']?.toString() ?? 'N/A',
+                  Colors.black54,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : () => _showLabelDialog(item.image),
+                    icon: const Icon(Icons.cloud_upload_outlined),
+                    label: const Text('Submit this image for training'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                   ),
-                  const Divider(height: 24),
-                  // Assuming your map has 'label' and 'confidence' keys
-                  _buildResultRow(
-                    'Label',
-                    _result!['label']?.toString() ?? 'Unknown',
-                    Colors.black87,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildResultRow(
-                    'Confidence',
-                    _result!['confidence']?.toString() ?? 'N/A',
-                    Colors.black54,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _image == null ? null : _showLabelDialog,
-              icon: const Icon(Icons.cloud_upload_outlined),
-              label: const Text('Submit this image for training'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
+                ),
+              ],
             ),
           ),
         ],
-      ],
+      ),
     );
   }
 
@@ -381,7 +433,7 @@ class _ScannerState extends State<ScannerScreen> {
           Expanded(
             child: FilledButton.icon(
               onPressed: _modelReady && !_loading
-                  ? () => _scan(ImageSource.gallery)
+                  ? _scanMultipleFromGallery
                   : null,
               icon: const Icon(Icons.photo_library),
               label: const Text('Gallery'),
