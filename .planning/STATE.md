@@ -3,27 +3,28 @@ milestone: v0.1
 name: Roboflow Automated Training Pipeline
 status: planning
 progress:
-  phases_total: 0
+  phases_total: 4
   phases_completed: 0
-  requirements_total: 0
-  requirements_mapped: 0
+  requirements_total: 20
+  requirements_mapped: 20
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 1 - Flutter Upload UI & Processing State
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-25 — Milestone v0.1 started
+Status: Roadmap created; ready to plan Phase 1
+Progress: [--------------------] 0/4 phases complete
+Last activity: 2026-05-25 — Roadmap created for milestone v0.1
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-25)
 
 **Core value:** Users can improve recognition quality by contributing labeled images and triggering a reliable training pipeline without exposing service secrets in the mobile app.
-**Current focus:** Define requirements and roadmap for the Roboflow automated training pipeline.
+**Current focus:** Plan and implement Phase 1: Flutter Upload UI & Processing State.
 
 ## Accumulated Context
 
@@ -40,7 +41,8 @@ See: .planning/PROJECT.md (updated 2026-05-25)
 
 ### Todos
 
+- Plan Phase 1 with `/gsd-plan-phase 1`.
 - Confirm whether a Django project should be created inside this repository or documented as backend files to integrate elsewhere.
 
 ---
-*Last updated: 2026-05-25 after starting milestone v0.1*
+*Last updated: 2026-05-25 after roadmap creation*
