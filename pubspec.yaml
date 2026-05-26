@@ -16,6 +16,7 @@ dependencies:
   http: ^1.6.0
   image_picker: ^1.1.2
   image: ^4.1.7
+  provider: ^6.1.5
 
   # ML Kit
   google_mlkit_image_labeling: ^0.12.1

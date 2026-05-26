@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:vision/model_updater.dart';
+import 'package:vision/roboflow_provider.dart';
+import 'package:vision/upload_screen.dart';
 
 import 'classifier.dart';
 import 'roboflow_service.dart';
@@ -50,16 +53,19 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Scanly',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        scaffoldBackgroundColor: _bg,
-        fontFamily: 'Georgia', // serif warmth — distinctive
-        colorScheme: ColorScheme.light(primary: _accent, surface: _surface),
-        useMaterial3: true,
+    return ChangeNotifierProvider(
+      create: (_) => RoboflowProvider(),
+      child: MaterialApp(
+        title: 'Scanly',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          scaffoldBackgroundColor: _bg,
+          fontFamily: 'Georgia', // serif warmth — distinctive
+          colorScheme: ColorScheme.light(primary: _accent, surface: _surface),
+          useMaterial3: true,
+        ),
+        home: const _AppShell(),
       ),
-      home: const _AppShell(),
     );
   }
 }
@@ -111,7 +117,7 @@ class _AppShellState extends State<_AppShell> {
   Widget build(BuildContext context) {
     final pages = [
       ScanPage(classifier: _classifier, modelReady: _modelReady),
-      const TrainPage(),
+      const UploadScreen(),
     ];
 
     return Scaffold(
@@ -628,15 +634,12 @@ class TrainPage extends StatefulWidget {
   State<TrainPage> createState() => _TrainPageState();
 }
 
-enum _TagMode { same, individual }
-
 class _TrainPageState extends State<TrainPage> {
   final _picker = ImagePicker();
 
   // ── Active batch state ────────────────────
   List<File> _images = [];
   String _className = '';
-  _TagMode _tagMode = _TagMode.same;
   bool _uploading = false;
   int _uploaded = 0;
   String? _doneMsg;
@@ -659,7 +662,6 @@ class _TrainPageState extends State<TrainPage> {
     setState(() {
       _images = [];
       _className = '';
-      _tagMode = _TagMode.same;
       _uploading = false;
       _uploaded = 0;
       _doneMsg = null;
@@ -711,27 +713,13 @@ class _TrainPageState extends State<TrainPage> {
 
     int success = 0;
 
-    if (_tagMode == _TagMode.same) {
-      // All images → same class label
-      for (int i = 0; i < _images.length; i++) {
-        final split = _splitFor(i, _images.length);
-        final ok = await RoboflowService.uploadForTraining(
-          _images[i],
-          _className,
-        );
-        if (ok) success++;
-        setState(() => _uploaded = i + 1);
-      }
-    } else {
-      // Individual labels — prompt per image
-      // (already handled during add flow, see _addWithIndividualLabel)
-      // Fall back to batch with class name
-      final ok = await RoboflowService.uploadBatchForTraining(
-        _images,
+    for (int i = 0; i < _images.length; i++) {
+      final ok = await RoboflowService.uploadForTraining(
+        _images[i],
         _className,
       );
-      success = ok ? _images.length : 0;
-      setState(() => _uploaded = _images.length);
+      if (ok) success++;
+      setState(() => _uploaded = i + 1);
     }
 
     setState(() {
@@ -739,14 +727,6 @@ class _TrainPageState extends State<TrainPage> {
       _doneMsg =
           '$success / ${_images.length} images uploaded as "$_className"';
     });
-  }
-
-  /// Distribute images: 80% train, 10% valid, 10% test
-  String _splitFor(int i, int total) {
-    final p = i / total;
-    if (p < 0.80) return 'train';
-    if (p < 0.90) return 'valid';
-    return 'test';
   }
 
   // ── Build ─────────────────────────────────
