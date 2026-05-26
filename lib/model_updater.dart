@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vision/api_logger.dart';
 
 class ModelUpdater {
   static const String _modelFilename = 'custom_model.tflite';
@@ -30,7 +31,16 @@ class ModelUpdater {
           (currentVersion > 0 && !localFile.existsSync())) {
         print('Downloading new model version $latestVersion...');
 
-        final modelResponse = await http.get(Uri.parse(modelDownloadUrl));
+        final modelUri = Uri.parse(modelDownloadUrl);
+        ApiLogger.request('GET', modelUri, label: 'Model download');
+        final modelResponse = await http.get(modelUri);
+        ApiLogger.response(
+          'GET',
+          modelUri,
+          modelResponse.statusCode,
+          label: 'Model download',
+          body: modelResponse.statusCode >= 300 ? modelResponse.body : null,
+        );
 
         if (modelResponse.statusCode == 200) {
           // Save the file to device storage
@@ -82,7 +92,16 @@ class ModelUpdater {
     final versionUrl = dotenv.env['MODEL_VERSION_URL'] ?? '';
     if (versionUrl.isEmpty) return 0;
 
-    final response = await http.get(Uri.parse(versionUrl));
+    final uri = Uri.parse(versionUrl);
+    ApiLogger.request('GET', uri, label: 'Model version');
+    final response = await http.get(uri);
+    ApiLogger.response(
+      'GET',
+      uri,
+      response.statusCode,
+      label: 'Model version',
+      body: response.statusCode >= 300 ? response.body : null,
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) return 0;
 
     return int.tryParse(response.body.trim()) ?? 0;
@@ -96,7 +115,10 @@ class ModelUpdater {
     final workspace = dotenv.env['WORKSPACE'] ?? '';
     final project = dotenv.env['PROJECT'] ?? '';
 
-    if (apiKey.isEmpty || workspace.isEmpty || project.isEmpty || version <= 0) {
+    if (apiKey.isEmpty ||
+        workspace.isEmpty ||
+        project.isEmpty ||
+        version <= 0) {
       return null;
     }
 

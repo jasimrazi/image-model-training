@@ -5,11 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:vision/model_updater.dart';
+import 'package:vision/roboflow_inference_service.dart';
 import 'package:vision/roboflow_provider.dart';
 import 'package:vision/upload_screen.dart';
 
-import 'classifier.dart';
 import 'roboflow_service.dart';
 
 // ─────────────────────────────────────────────
@@ -84,41 +83,9 @@ class _AppShell extends StatefulWidget {
 class _AppShellState extends State<_AppShell> {
   int _tab = 0;
 
-  final _classifier = Classifier();
-  bool _modelReady = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _initModel();
-  }
-
-  Future<void> _initModel() async {
-    try {
-      final path = await ModelUpdater.checkAndUpdate();
-      await _classifier.loadModel(modelPath: path);
-      if (mounted) setState(() => _modelReady = true);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Model load failed: $e')));
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _classifier.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      ScanPage(classifier: _classifier, modelReady: _modelReady),
-      const UploadScreen(),
-    ];
+    final pages = [const ScanPage(), const UploadScreen()];
 
     return Scaffold(
       backgroundColor: _bg,
@@ -217,13 +184,7 @@ class _NavItem extends StatelessWidget {
 // ═════════════════════════════════════════════
 
 class ScanPage extends StatefulWidget {
-  final Classifier classifier;
-  final bool modelReady;
-  const ScanPage({
-    super.key,
-    required this.classifier,
-    required this.modelReady,
-  });
+  const ScanPage({super.key});
 
   @override
   State<ScanPage> createState() => _ScanPageState();
@@ -231,7 +192,7 @@ class ScanPage extends StatefulWidget {
 
 class ScanItem {
   final File image;
-  final Map<String, dynamic> result;
+  final HostedInferenceResult result;
   ScanItem({required this.image, required this.result});
 }
 
@@ -269,41 +230,16 @@ class _ScanPageState extends State<ScanPage> {
 
     for (final x in picked) {
       final file = File(x.path);
-      final result = await widget.classifier.classify(file);
+      final result = await RoboflowInferenceService.scan(file);
       results.add(ScanItem(image: file, result: result));
-
-      if (result['isRecognized'] == false && mounted) {
-        await _showUnknownDialog(file);
-      }
     }
 
-    if (mounted)
+    if (mounted) {
       setState(() {
         _items.addAll(results);
         _loading = false;
       });
-  }
-
-  // ── Unknown dialogs ───────────────────────
-
-  Future<void> _showUnknownDialog(File image) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _Sheet(
-        icon: Icons.help_outline_rounded,
-        iconBg: const Color(0xFFFEF3C7),
-        iconColor: _amber,
-        title: 'Product not recognized',
-        body:
-            'Confidence too low. You can submit this image to improve the model.',
-        cancel: 'Skip',
-        confirm: 'Submit for training',
-        onConfirm: () {
-          Navigator.pop(context);
-          _promptLabel(image);
-        },
-      ),
-    );
+    }
   }
 
   void _promptLabel(File image) {
@@ -344,12 +280,11 @@ class _ScanPageState extends State<ScanPage> {
           children: [
             _PageHeader(
               title: 'Scanner',
-              subtitle: 'Classify a product',
-              action: widget.modelReady && !_loading ? null : null,
+              subtitle: 'Classify with Roboflow online',
             ),
             Expanded(child: _body()),
             _ScanActions(
-              enabled: widget.modelReady && !_loading,
+              enabled: !_loading,
               onCamera: _pickCamera,
               onGallery: _pickGallery,
             ),
@@ -360,11 +295,8 @@ class _ScanPageState extends State<ScanPage> {
   }
 
   Widget _body() {
-    if (!widget.modelReady) {
-      return const _Loader(label: 'Initializing model…');
-    }
     if (_loading) {
-      return const _Loader(label: 'Classifying…');
+      return const _Loader(label: 'Sending to Roboflow…');
     }
     if (_items.isEmpty) {
       return _EmptyState(
@@ -396,13 +328,9 @@ class _ScanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = item.result['label'] as String? ?? 'Unknown';
-    final confidence = (item.result['confidence'] as double? ?? 0) * 100;
-    final recognized = item.result['isRecognized'] as bool? ?? false;
-    final allScores = item.result['all'] as Map<String, double>? ?? {};
-    final topEntries = allScores.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
+    final label = item.result.label;
+    final confidence = item.result.confidence * 100;
+    final recognized = item.result.success;
     final confColor = confidence >= 70
         ? _green
         : confidence >= 45
@@ -435,7 +363,9 @@ class _ScanCard extends StatelessWidget {
                 Row(
                   children: [
                     _Chip(
-                      label: recognized ? 'Recognized' : 'Unknown',
+                      label: recognized
+                          ? 'Roboflow response'
+                          : 'Request failed',
                       color: recognized ? _green : _red,
                     ),
                   ],
@@ -475,73 +405,44 @@ class _ScanCard extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(3),
                   child: LinearProgressIndicator(
-                    value: confidence / 100,
+                    value: confidence <= 0 ? null : confidence / 100,
                     minHeight: 5,
                     backgroundColor: _border,
                     valueColor: AlwaysStoppedAnimation(confColor),
                   ),
                 ),
 
-                // Top predictions list
-                if (topEntries.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  const Divider(color: _border, height: 1),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'All predictions',
-                    style: TextStyle(
+                const SizedBox(height: 14),
+                const Divider(color: _border, height: 1),
+                const SizedBox(height: 12),
+                const Text(
+                  'Roboflow response',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _muted,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _bg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Text(
+                    item.result.rawResponse,
+                    style: const TextStyle(
                       fontSize: 11,
-                      color: _muted,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.8,
+                      color: _ink,
+                      height: 1.35,
+                      fontFamily: 'monospace',
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  ...topEntries.take(4).map((e) {
-                    final pct = (e.value * 100).clamp(0.0, 100.0);
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              e.key,
-                              style: const TextStyle(fontSize: 13, color: _ink),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 80,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(3),
-                              child: LinearProgressIndicator(
-                                value: pct / 100,
-                                minHeight: 4,
-                                backgroundColor: _border,
-                                valueColor: const AlwaysStoppedAnimation(
-                                  _accent,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 38,
-                            child: Text(
-                              '${pct.toStringAsFixed(1)}%',
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: _muted,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ],
+                ),
 
                 const SizedBox(height: 14),
 
@@ -1900,85 +1801,5 @@ class _LabelDialogState extends State<_LabelDialog> {
   void _submit() {
     final label = _ctrl.text.trim().replaceAll(RegExp(r'\s+'), '-');
     Navigator.pop(context, label);
-  }
-}
-
-// ─────────────────────────────────────────────
-// Confirmation sheet (reusable)
-// ─────────────────────────────────────────────
-
-class _Sheet extends StatelessWidget {
-  final IconData icon;
-  final Color iconBg;
-  final Color iconColor;
-  final String title;
-  final String body;
-  final String cancel;
-  final String confirm;
-  final VoidCallback onConfirm;
-
-  const _Sheet({
-    required this.icon,
-    required this.iconBg,
-    required this.iconColor,
-    required this.title,
-    required this.body,
-    required this.cancel,
-    required this.confirm,
-    required this.onConfirm,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: _surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: iconColor, size: 20),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              fontFamily: 'Georgia',
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            body,
-            style: const TextStyle(fontSize: 13, color: _muted, height: 1.5),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(cancel, style: const TextStyle(color: _muted)),
-        ),
-        ElevatedButton(
-          onPressed: onConfirm,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _accent,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child: Text(confirm),
-        ),
-      ],
-    );
   }
 }

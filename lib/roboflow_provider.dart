@@ -1,7 +1,6 @@
 import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:vision/roboflow_service.dart';
+import 'package:vision/roboflow_service.dart'; // Adjust import path as needed
 
 class RoboflowProvider extends ChangeNotifier {
   final List<File> _images = [];
