@@ -76,21 +76,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FLUT-03 | Phase 1 | Complete |
 | FLUT-04 | Phase 1 | Complete |
 | FLUT-05 | Phase 1 | Complete |
-| ROBO-01 | Phase 2 | Pending |
-| ROBO-02 | Phase 2 | Pending |
-| ROBO-03 | Phase 2 | Pending |
-| BACK-01 | Phase 2 | Pending |
-| BACK-02 | Phase 3 | Pending |
-| BACK-03 | Phase 3 | Pending |
-| BACK-04 | Phase 3 | Pending |
-| PIPE-01 | Phase 3 | Pending |
-| PIPE-02 | Phase 4 | Pending |
-| PIPE-03 | Phase 4 | Pending |
-| PIPE-04 | Phase 4 | Pending |
-| PIPE-05 | Phase 3 | Pending |
+| ROBO-01 | Phase 2 | Complete |
+| ROBO-02 | Phase 2 | Complete |
+| ROBO-03 | Phase 2 | Complete |
+| BACK-01 | Phase 2 | Complete |
+| BACK-02 | Phase 3 | Complete |
+| BACK-03 | Phase 3 | Complete |
+| BACK-04 | Phase 3 | Complete |
+| PIPE-01 | Phase 3 | Complete |
+| PIPE-02 | Phase 4 | Complete |
+| PIPE-03 | Phase 4 | Complete |
+| PIPE-04 | Phase 4 | Complete |
+| PIPE-05 | Phase 3 | Complete |
 | CONF-01 | Phase 1 | Complete |
-| CONF-02 | Phase 3 | Pending |
-| CONF-03 | Phase 4 | Pending |
+| CONF-02 | Phase 3 | Complete |
+| CONF-03 | Phase 4 | Complete |
 
 **Coverage:**
 - v0.1 requirements: 20 total
@@ -99,4 +99,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1 implementation*
+*Last updated: 2026-05-26 after milestone implementation*

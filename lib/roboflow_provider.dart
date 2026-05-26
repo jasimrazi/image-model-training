@@ -1,15 +1,18 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:vision/roboflow_service.dart';
 
 class RoboflowProvider extends ChangeNotifier {
   final List<File> _images = [];
   String _className = '';
   bool _isProcessing = false;
+  String? _statusMessage;
 
   List<File> get images => List.unmodifiable(_images);
   String get className => _className;
   bool get isProcessing => _isProcessing;
+  String? get statusMessage => _statusMessage;
   bool get canSubmit => _images.isNotEmpty && _className.trim().isNotEmpty;
 
   void setClassName(String value) {
@@ -22,12 +25,14 @@ class RoboflowProvider extends ChangeNotifier {
   void addImages(List<File> files) {
     if (files.isEmpty) return;
     _images.addAll(files);
+    _statusMessage = null;
     notifyListeners();
   }
 
   void removeImageAt(int index) {
     if (index < 0 || index >= _images.length) return;
     _images.removeAt(index);
+    _statusMessage = null;
     notifyListeners();
   }
 
@@ -35,9 +40,11 @@ class RoboflowProvider extends ChangeNotifier {
     if (!canSubmit || _isProcessing) return;
     _setProcessing(true);
 
-    // Phase 1 owns UI/state only. Network upload and backend trigger are added
-    // in Phase 2 after the Roboflow and Django request contracts are wired.
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final result = await RoboflowService.uploadBatchForTraining(
+      _images,
+      _className,
+    );
+    _statusMessage = result.message;
 
     _setProcessing(false);
   }
@@ -46,6 +53,7 @@ class RoboflowProvider extends ChangeNotifier {
     _images.clear();
     _className = '';
     _isProcessing = false;
+    _statusMessage = null;
     notifyListeners();
   }
 

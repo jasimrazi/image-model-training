@@ -26,15 +26,13 @@ Users can improve recognition quality by contributing labeled images and trigger
 - ✓ Flutter app can acquire images from camera/gallery for recognition workflows — inferred from existing implementation.
 - ✓ App can run local TFLite inference against bundled model assets — inferred from existing implementation.
 - ✓ Existing code has Roboflow HTTP integration concepts for upload, training, export, and model update flows — inferred from existing implementation.
+- ✓ User can prepare labeled training batches in Flutter with Provider-backed processing state — v0.1.
+- ✓ App can upload selected images directly to Roboflow and trigger backend training only after upload success — v0.1.
+- ✓ Django backend can accept training triggers and schedule Roboflow versioning/training asynchronously — v0.1.
 
 ### Active
 
-- [ ] User can select multiple training images from the Flutter app.
-- [ ] User can enter a Roboflow class/tag for the selected images.
-- [ ] User can upload selected images directly to Roboflow as multipart form data.
-- [ ] User can trigger backend dataset version generation and YOLOv8 training after upload.
-- [ ] Backend stores and uses the Roboflow API key without requiring the Flutter client to send it.
-- [ ] Backend returns immediately while training work continues in a background thread.
+(None — milestone v0.1 complete.)
 
 ### Out of Scope
 
@@ -67,6 +65,7 @@ Users can improve recognition quality by contributing labeled images and trigger
 | Backend-held Roboflow API key | Prevents exposing long-lived service secrets in the mobile app | — Pending |
 | Python threading for training trigger | Matches requested implementation and keeps HTTP response immediate | — Pending |
 | Split new Flutter upload feature into dedicated files | Avoids further expanding the large existing `lib/main.dart` | — Pending |
+| Django backend under `backend/` | Keeps the training trigger implementation runnable in this repo | ✓ Good |
 
 ## Evolution
 
@@ -86,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-25 after starting milestone v0.1*
+*Last updated: 2026-05-26 after completing milestone v0.1*

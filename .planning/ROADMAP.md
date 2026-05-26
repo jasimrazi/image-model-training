@@ -8,9 +8,9 @@
 ## Phases
 
 - [x] **Phase 1: Flutter Upload UI & Processing State** - Users can open a dedicated training upload flow, select images, enter a class/tag, and see safe processing state.
-- [ ] **Phase 2: Roboflow Upload Client & Trigger Handoff** - Selected images upload directly to Roboflow and backend training is triggered only after all uploads succeed.
-- [ ] **Phase 3: Django Trigger API & Async Scheduling** - Backend accepts training trigger requests, validates them, keeps secrets server-side, and returns immediately after scheduling work.
-- [ ] **Phase 4: Roboflow Versioning, Training & Configuration Verification** - Backend generates a Roboflow dataset version, starts YOLOv8 training, and documents required runtime configuration.
+- [x] **Phase 2: Roboflow Upload Client & Trigger Handoff** - Selected images upload directly to Roboflow and backend training is triggered only after all uploads succeed.
+- [x] **Phase 3: Django Trigger API & Async Scheduling** - Backend accepts training trigger requests, validates them, keeps secrets server-side, and returns immediately after scheduling work.
+- [x] **Phase 4: Roboflow Versioning, Training & Configuration Verification** - Backend generates a Roboflow dataset version, starts YOLOv8 training, and documents required runtime configuration.
 
 ## Phase Details
 
@@ -67,9 +67,9 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Flutter Upload UI & Processing State | 1/1 | Complete | 2026-05-25 |
-| 2. Roboflow Upload Client & Trigger Handoff | 0/0 | Not started | - |
-| 3. Django Trigger API & Async Scheduling | 0/0 | Not started | - |
-| 4. Roboflow Versioning, Training & Configuration Verification | 0/0 | Not started | - |
+| 2. Roboflow Upload Client & Trigger Handoff | 1/1 | Complete | 2026-05-26 |
+| 3. Django Trigger API & Async Scheduling | 1/1 | Complete | 2026-05-26 |
+| 4. Roboflow Versioning, Training & Configuration Verification | 1/1 | Complete | 2026-05-26 |
 
 ## Coverage Map
 

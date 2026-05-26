@@ -85,6 +85,10 @@ class _UploadScreenState extends State<UploadScreen> {
                         ),
                         const SizedBox(height: 22),
                         if (provider.isProcessing) const _ProcessingState(),
+                        if (provider.statusMessage != null) ...[
+                          const SizedBox(height: 14),
+                          _StatusMessage(message: provider.statusMessage!),
+                        ],
                       ],
                     ),
                   ),
@@ -389,6 +393,29 @@ class _ProcessingState extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StatusMessage extends StatelessWidget {
+  final String message;
+
+  const _StatusMessage({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
+      child: Text(
+        message,
+        style: const TextStyle(fontSize: 13, color: _ink, height: 1.4),
       ),
     );
   }
