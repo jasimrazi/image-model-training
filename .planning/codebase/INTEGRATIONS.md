@@ -1,100 +1,132 @@
 # External Integrations
 
-**Analysis Date:** 2026-05-25
+**Analysis Date:** 2026-05-27
 
 ## APIs & External Services
 
-**Roboflow training and model export:**
-- Roboflow API - Uploads user-provided training images, starts training jobs, polls training status, requests TFLite exports, and constructs model-download URLs.
-  - SDK/Client: `http` package used directly in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
-  - Auth: `ROBOFLOW_API_KEY` from `.env` via `flutter_dotenv` in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
-  - Workspace/project config: `ROBOFLOW_WORKSPACE`, `WORKSPACE`, `ROBOFLOW_PROJECT`, and `PROJECT` in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
-  - Upload endpoint: `https://api.roboflow.com/dataset/{project}/upload` in `lib/roboflow_service.dart`.
-  - Training job endpoint: `https://api.roboflow.com/{workspace}/{project}/jobs` in `lib/roboflow_service.dart`.
-  - Training status endpoint: `https://api.roboflow.com/{workspace}/{project}/jobs/{jobId}` in `lib/roboflow_service.dart`.
-  - Export endpoint: `https://api.roboflow.com/{workspace}/{project}/{version}/export` with `format=tflite` in `lib/roboflow_service.dart`.
-  - Direct TFLite URL builder: `https://api.roboflow.com/{workspace}/{project}/{version}/tflite` in `lib/model_updater.dart`.
+**Roboflow Inference:**
+- Roboflow Hosted Inference - Classifies camera/gallery images from the Flutter scan flow.
+  - SDK/Client: Dart `http` 1.6.0 in `lib/roboflow_inference_service.dart`.
+  - Endpoint: `https://classify.roboflow.com/{project}/{version}` constructed with `Uri.https('classify.roboflow.com', '/$project/$version', ...)` in `lib/roboflow_inference_service.dart`.
+  - Auth: `ROBOFLOW_API_KEY` query parameter, redacted by `lib/api_logger.dart`.
+  - Config: `ROBOFLOW_PROJECT` or `PROJECT`, plus optional `ROBOFLOW_INFER_VERSION`.
 
-**Google ML Kit on-device vision:**
-- Google ML Kit Text Recognition - Optional OCR implementation through `TextRecognizer` in `lib/cloud_vision_service.dart`.
-  - SDK/Client: `google_mlkit_text_recognition` package.
-  - Auth: Not required; on-device model integration.
-- Google ML Kit Image Labeling - Optional on-device labeler through `ImageLabeler` in `lib/cloud_vision_service.dart`.
-  - SDK/Client: `google_mlkit_image_labeling` package.
-  - Auth: Not required; on-device model integration.
-- Google ML Kit Android dependency preloading - Android manifest metadata `com.google.mlkit.vision.DEPENDENCIES=ocr,label,object_detection` in `android/app/src/main/AndroidManifest.xml`.
+**Roboflow Project Metadata:**
+- Roboflow API - Looks up the latest trained project version when Flutter inference version is `latest`.
+  - SDK/Client: Dart `http` 1.6.0 in `lib/roboflow_inference_service.dart`.
+  - Endpoint: `https://api.roboflow.com/{workspace}/{project}` constructed in `lib/roboflow_inference_service.dart`.
+  - Auth: `ROBOFLOW_API_KEY` query parameter, redacted by `lib/api_logger.dart`.
+  - Config: `ROBOFLOW_WORKSPACE` or `WORKSPACE`, and `ROBOFLOW_PROJECT` or `PROJECT`.
 
-**Generic model update endpoints:**
-- Custom model version endpoint - `MODEL_VERSION_URL` is fetched with `http.get(Uri.parse(...))` and expected to return an integer version in `lib/model_updater.dart`.
-  - SDK/Client: `http` package.
-  - Auth: Not detected by code; endpoint URL comes from `.env`.
-- Direct model download endpoint - `MODEL_DOWNLOAD_URL` is fetched with `http.get(Uri.parse(...))` in `lib/model_updater.dart`.
-  - SDK/Client: `http` package.
-  - Auth: Not detected by code; endpoint URL comes from `.env`.
+**Roboflow Model Download:**
+- Roboflow API - Downloads TensorFlow Lite export for local/custom model updates.
+  - SDK/Client: Dart `http` 1.6.0 in `lib/model_updater.dart`.
+  - Endpoint: `https://api.roboflow.com/{workspace}/{project}/{version}/tflite` constructed in `lib/model_updater.dart`.
+  - Auth: `ROBOFLOW_API_KEY` query parameter, redacted by `lib/api_logger.dart`.
+  - Config: `WORKSPACE`, `PROJECT`, `MODEL_VERSION`, `MODEL_VERSION_URL`, and optional `MODEL_DOWNLOAD_URL`.
+
+**Training Trigger Backend:**
+- Django backend trigger - Flutter uploads training images and metadata to a backend endpoint.
+  - SDK/Client: Dart `http.MultipartRequest` in `lib/roboflow_service.dart`.
+  - Endpoint: `BACKEND_TRIGGER_URL` from Flutter `.env`.
+  - Auth: No app-side auth detected in `lib/roboflow_service.dart`.
+  - Payload: multipart fields `workspace_id`, `project_id`, `class_name`, and repeated `images` files in `lib/roboflow_service.dart`.
+
+**Roboflow Training Backend:**
+- Roboflow Python SDK - Backend uploads datasets, generates versions, exports model artifacts, and starts training.
+  - SDK/Client: Python `roboflow` package from `requirements.txt`, imported in `backend/training/views.py`.
+  - Auth: `ROBOFLOW_API_KEY` environment variable read in `backend/training/views.py`.
+  - Operations: `workspace.upload_dataset(...)`, `project.generate_version(...)`, `version.export(...)`, and `rfapi.start_version_training(...)` in `backend/training/views.py`.
+
+**Google ML Kit On-Device Models:**
+- Google ML Kit Text Recognition / Image Labeling / Object Detection - On-device ML features bundled through Flutter plugins and Android model dependency preload.
+  - SDK/Client: `google_mlkit_text_recognition`, `google_mlkit_image_labeling`, and `google_mlkit_object_detection` from `pubspec.yaml`.
+  - Implementation: OCR and image labeling in `lib/cloud_vision_service.dart`.
+  - Auth: None detected; these are on-device SDK integrations.
+  - Android preload: `com.google.mlkit.vision.DEPENDENCIES=ocr,label,object_detection` in `android/app/src/main/AndroidManifest.xml`.
 
 ## Data Storage
 
 **Databases:**
-- Not detected - No database package, ORM, database schema, or database connection config is present in `pubspec.yaml`, `lib/`, or platform config files.
+- SQLite for Django backend.
+  - Connection: configured in `backend/training_backend/settings.py` as `django.db.backends.sqlite3` at `backend/db.sqlite3`.
+  - Client: Django ORM, although no app models were detected in `backend/training/`.
 
 **File Storage:**
-- Local app documents directory - `path_provider` returns `getApplicationDocumentsDirectory()` for downloaded TFLite files in `lib/model_updater.dart`.
-- Bundled Flutter assets - `assets/model.tflite`, `assets/labels.txt`, and `.env` are declared under `flutter.assets` in `pubspec.yaml`.
-- User-selected image files - `image_picker` returns local `XFile` paths that are converted to `File` objects in `lib/main.dart`.
+- Flutter bundled assets: `assets/model.tflite` and `assets/labels.txt` declared in `pubspec.yaml` and loaded in `lib/cloud_vision_service.dart` and `lib/classifier.dart`.
+- Flutter app documents directory: `custom_model.tflite` downloaded and stored through `path_provider` in `lib/model_updater.dart`.
+- Flutter platform image paths: image files selected through `image_picker` are passed as `File` instances in `lib/main.dart` and `lib/upload_screen.dart`.
+- Backend temporary filesystem: uploaded training images are saved under a temporary class-name folder in `backend/training/views.py` and deleted with `shutil.rmtree(...)`.
 
 **Caching:**
-- `shared_preferences` - Stores `saved_model_version` and `model_version` keys in `lib/model_updater.dart`.
-- Local model cache - Downloaded model files `custom_model.tflite` and `model.tflite` are written to the app documents directory in `lib/model_updater.dart`.
+- Shared preferences cache the downloaded model version under `saved_model_version` in `lib/model_updater.dart`.
+- No Redis, Memcached, CDN, or server-side cache integration detected.
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- No user authentication provider detected - No Firebase Auth, OAuth, Supabase, or custom session management appears in `pubspec.yaml` or `lib/`.
-- Service authentication is API-key based for Roboflow - `ROBOFLOW_API_KEY` is appended as an `api_key` query parameter in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
+- Roboflow API key authentication.
+  - Implementation: Flutter reads `ROBOFLOW_API_KEY` from `.env` via `flutter_dotenv` in `lib/roboflow_inference_service.dart` and `lib/model_updater.dart`; backend reads `ROBOFLOW_API_KEY` from environment in `backend/training/views.py`.
+  - Transport: query parameter `api_key` for Flutter Roboflow API calls; Python SDK constructor `Roboflow(api_key=...)` for backend training in `backend/training/views.py`.
+- Django app authentication: Not detected.
+  - Implementation: `trigger_training` is decorated with `@csrf_exempt` in `backend/training/views.py`, and no token/session checks were detected.
+- User identity/accounts: Not detected in Flutter `lib/` or Django `backend/`.
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None detected - No Sentry, Crashlytics, analytics, or observability package is declared in `pubspec.yaml`.
+- None detected. No Sentry, Crashlytics, Rollbar, OpenTelemetry, or analytics package is declared in `pubspec.yaml` or `requirements.txt`.
 
 **Logs:**
-- Console/debug logging only - `print` is used in `lib/model_updater.dart`, `lib/classifier.dart`-adjacent inference paths use returned maps, and `debugPrint` is used in `lib/roboflow_service.dart` and `lib/cloud_vision_service.dart`.
-- User-visible operational failures are shown through `SnackBar` in `lib/main.dart` for model initialization, upload, and training flows.
+- Flutter API logging uses `ApiLogger` in `lib/api_logger.dart`; it logs only in `kDebugMode` and redacts `api_key` query parameters.
+- Flutter model/inference paths use `print(...)` and `debugPrint(...)` in `lib/cloud_vision_service.dart`, `lib/model_updater.dart`, `lib/roboflow_service.dart`, and `lib/api_logger.dart`.
+- Backend logging uses Python `logging.getLogger(__name__)` and `logger.info(...)` / `logger.exception(...)` in `backend/training/views.py`.
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Not detected - No deployment configuration is present; platform host projects exist under `android/`, `ios/`, `macos/`, `linux/`, `windows/`, and `web/`.
+- Flutter hosting target is not specified; generated platform folders exist for `android/`, `ios/`, `web/`, `macos/`, `windows/`, and `linux/`.
+- Backend hosting target is not specified; Django WSGI entrypoint exists at `backend/training_backend/wsgi.py`.
 
 **CI Pipeline:**
-- None detected - No workflow files found under `.github/workflows/`; no repo-level CI config detected.
+- None detected. No `.github/workflows/*` files were found.
 
 ## Environment Configuration
 
 **Required env vars:**
-- `ROBOFLOW_API_KEY` - Required for Roboflow uploads, training jobs, status polling, export requests, and Roboflow TFLite downloads in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
-- `ROBOFLOW_WORKSPACE` or `WORKSPACE` - Required for Roboflow job and TFLite download paths in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
-- `ROBOFLOW_PROJECT` or `PROJECT` - Required for Roboflow upload, job, export, and TFLite download paths in `lib/roboflow_service.dart` and `lib/model_updater.dart`.
-- `ROBOFLOW_BATCH_NAME` - Optional upload batch label; defaults to `mobile-training` in `lib/roboflow_service.dart`.
-- `ROBOFLOW_TRAIN_VERSION` or `MODEL_VERSION` - Selects an existing Roboflow dataset/model version in `lib/roboflow_service.dart`; `MODEL_VERSION` also drives model update checks in `lib/model_updater.dart`.
-- `ROBOFLOW_MODEL_TYPE` - Optional Roboflow training model type; defaults to `rfdetr-nano` in `lib/roboflow_service.dart`.
-- `MODEL_VERSION_URL` - Optional endpoint for latest model version lookup in `lib/model_updater.dart`.
-- `MODEL_DOWNLOAD_URL` - Optional direct model download URL in `lib/model_updater.dart`.
+- Flutter app:
+  - `ROBOFLOW_API_KEY` - required for hosted inference in `lib/roboflow_inference_service.dart` and Roboflow model downloads in `lib/model_updater.dart`.
+  - `ROBOFLOW_PROJECT` or `PROJECT` - required for hosted inference in `lib/roboflow_inference_service.dart`.
+  - `ROBOFLOW_WORKSPACE` or `WORKSPACE` - required when `ROBOFLOW_INFER_VERSION` is `latest` in `lib/roboflow_inference_service.dart`.
+  - `ROBOFLOW_INFER_VERSION` - optional; defaults to `latest` in `lib/roboflow_inference_service.dart`.
+  - `BACKEND_TRIGGER_URL` - required for training uploads in `lib/roboflow_service.dart`.
+  - `MODEL_VERSION`, `MODEL_VERSION_URL`, and `MODEL_DOWNLOAD_URL` - optional model-update configuration in `lib/model_updater.dart`.
+- Django backend:
+  - `DJANGO_SECRET_KEY` - Django secret setting in `backend/training_backend/settings.py`.
+  - `DJANGO_DEBUG` - controls debug mode in `backend/training_backend/settings.py`.
+  - `DJANGO_ALLOWED_HOSTS` - controls allowed hosts in `backend/training_backend/settings.py`.
+  - `ROBOFLOW_API_KEY` - required by `backend/training/views.py` to use the Roboflow SDK.
 
 **Secrets location:**
-- `.env` file present - referenced by `lib/main.dart` and bundled by `pubspec.yaml`; contents are not read or documented.
-- `.env.example` file present - template exists; contents are not read or documented because `.env*` files can contain secrets.
-- Avoid placing actual secret values in documentation or logs; `lib/roboflow_service.dart` currently sends the Roboflow API key as a query parameter.
+- Repository root `.env` file present and bundled by `pubspec.yaml`; contents were not read.
+- `backend/.env` file present and loaded by `backend/training_backend/settings.py`; contents were not read.
+- `backend/README.md` documents placeholder env var names only and instructs not to commit real API keys.
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None detected - No server, route handler, webhook endpoint, or backend process exists in the Flutter app code under `lib/`.
+- `POST /api/trigger-training/` - Django endpoint routed by `backend/training_backend/urls.py` and `backend/training/urls.py`, implemented by `trigger_training` in `backend/training/views.py`.
+- Flutter calls the incoming backend URL through `BACKEND_TRIGGER_URL` in `lib/roboflow_service.dart`.
+- No third-party webhook receiver endpoints detected.
 
 **Outgoing:**
-- Roboflow HTTP calls from the client app - `lib/roboflow_service.dart` sends image upload, training job, status, and export requests to `api.roboflow.com`.
-- Model update HTTP calls from the client app - `lib/model_updater.dart` requests version metadata and downloads model files from `MODEL_VERSION_URL`, `MODEL_DOWNLOAD_URL`, or Roboflow-generated TFLite URLs.
+- Flutter outgoing POST to Roboflow Hosted Inference from `lib/roboflow_inference_service.dart`.
+- Flutter outgoing GET to Roboflow project metadata from `lib/roboflow_inference_service.dart`.
+- Flutter outgoing GET to model version/download URLs from `lib/model_updater.dart`.
+- Flutter outgoing multipart POST to backend trigger URL from `lib/roboflow_service.dart`.
+- Backend outgoing Roboflow SDK calls for dataset upload, version generation, export, and training start from `backend/training/views.py`.
+- No webhook callback registration or asynchronous callback consumer was detected.
 
 ---
 
-*Integration audit: 2026-05-25*
+*Integration audit: 2026-05-27*

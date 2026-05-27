@@ -1,174 +1,174 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-05-25
+**Analysis Date:** 2026-05-27
 
 ## Test Framework
 
 **Runner:**
-- Flutter test runner via `flutter_test` from the Flutter SDK, declared in `pubspec.yaml`.
-- Config: Not detected. There is no `test/` directory, no `flutter_test_config.dart`, no `mockito`/`mocktail`, and no separate coverage config.
+- Flutter test runner from `flutter_test` SDK dependency in `pubspec.yaml`.
+- Config: Not detected. There is no `test/` directory, `flutter_test_config.dart`, `package:test` config, `mockito` config, or `build_runner` test setup.
+- macOS native XCTest template exists at `macos/RunnerTests/RunnerTests.swift`; it contains only the generated `testExample()` placeholder.
 
 **Assertion Library:**
-- Flutter/Dart matcher assertions from `package:flutter_test/flutter_test.dart` are available through `flutter_test` in `pubspec.yaml`.
-- No third-party assertion, fake, or mocking library is configured.
+- Dart: Flutter's `expect()` from `flutter_test` is available through `dev_dependencies` in `pubspec.yaml`.
+- Swift/macOS: XCTest assertions are available in `macos/RunnerTests/RunnerTests.swift`.
+- Python/Django: Not configured. `requirements.txt` contains `django`, `python-dotenv`, and `roboflow`; no `pytest`, `pytest-django`, or Django test modules are present.
 
 **Run Commands:**
 ```bash
-flutter test              # Run all tests when test files exist
-flutter test --coverage   # Run tests and generate coverage/lcov.info
-flutter analyze           # Primary current verification command
+flutter test              # Run all Flutter tests when test/**/*.dart files exist
+flutter test --watch      # Watch mode is not a standard Flutter command; rerun focused tests manually
+flutter test --coverage   # Generate Flutter coverage in coverage/lcov.info when tests exist
+flutter analyze           # Primary current verification because no Flutter tests are present
 ```
 
 ## Test File Organization
 
 **Location:**
-- No test files detected. Add tests under a root `test/` directory, matching Flutter conventions.
-- Place unit tests for services next to a mirrored path under `test/`: `test/classifier_test.dart` for `lib/classifier.dart`, `test/model_updater_test.dart` for `lib/model_updater.dart`, `test/roboflow_service_test.dart` for `lib/roboflow_service.dart`, and `test/cloud_vision_service_test.dart` for `lib/cloud_vision_service.dart`.
-- Place widget tests under `test/widgets/` or feature-named files once UI is split from `lib/main.dart`. For current code, use `test/main_test.dart` or `test/scan_page_test.dart` when testing `MyApp`, `ScanPage`, and `TrainPage` from `lib/main.dart`.
+- No Dart test files are present. Add Flutter tests under `test/` at the repository root.
+- Co-locate tests by feature name rather than mirroring every private widget. Suggested first files: `test/roboflow_provider_test.dart`, `test/roboflow_inference_service_test.dart`, `test/roboflow_service_test.dart`, and widget tests such as `test/upload_screen_test.dart`.
+- Django tests are not present. Add backend tests under `backend/training/tests.py` or `backend/training/tests/test_views.py` if the backend receives behavior changes.
 
 **Naming:**
-- Use Flutter/Dart convention `*_test.dart` for every test file. No current files match this pattern.
-- Name test groups after the class or method under test, such as `group('Classifier', ...)`, `group('ModelUpdater.checkAndUpdate', ...)`, and `group('RoboflowService.runTrainingPipeline', ...)`.
+- Use `*_test.dart` for Flutter/Dart test files, matching Flutter conventions.
+- Use `test_*.py` or Django `tests.py` for Python backend tests if introduced.
+- Keep test names behavior-oriented: `uploadAndTrain sets status message on success`, `scan returns failure when API key is missing`, `trigger_training rejects non-POST requests`.
 
 **Structure:**
 ```
 test/
-├── classifier_test.dart              # Unit tests for `lib/classifier.dart`
-├── model_updater_test.dart           # Unit tests for `lib/model_updater.dart`
-├── roboflow_service_test.dart        # Unit tests for `lib/roboflow_service.dart`
-├── cloud_vision_service_test.dart    # Unit tests for `lib/cloud_vision_service.dart`
-└── widgets/
-    ├── scan_page_test.dart           # Widget tests for scanner UI in `lib/main.dart`
-    └── train_page_test.dart          # Widget tests for training UI in `lib/main.dart`
+├── roboflow_provider_test.dart          # ChangeNotifier state and upload flow behavior
+├── roboflow_service_test.dart           # Multipart validation/result mapping with injectable HTTP seams
+├── roboflow_inference_service_test.dart # Response parsing and failure cases
+└── upload_screen_test.dart              # Widget state and provider interactions
+
+backend/training/tests.py                # Django endpoint tests if Python tests are added
 ```
 
 ## Test Structure
 
 **Suite Organization:**
-```dart
+```typescript
+// Dart pattern to use for this repo (no existing Dart tests are present):
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vision/roboflow_service.dart';
+import 'package:vision/roboflow_provider.dart';
 
 void main() {
-  group('RoboflowService', () {
-    test('splits uploaded batches across train, valid, and test sets', () {
-      // Arrange
-      // Act
-      // Assert
+  group('RoboflowProvider', () {
+    test('addImages appends files and clears status', () {
+      final provider = RoboflowProvider();
+
+      // arrange input files, act through provider methods, assert public getters
+      expect(provider.images, isEmpty);
     });
   });
 }
 ```
 
 **Patterns:**
-- Use `group()` per class or workflow and `test()` per behavior for service code in `lib/classifier.dart`, `lib/model_updater.dart`, `lib/roboflow_service.dart`, and `lib/cloud_vision_service.dart`.
-- Use `testWidgets()` for UI behavior in `lib/main.dart`, pumping `MyApp`, `ScanPage`, or extracted widgets once dependencies are injectable.
-- Use Arrange/Act/Assert comments in complex tests where setup includes file fixtures, HTTP clients, or asset bundles.
-- Use `setUp()` to create temporary files, fake clients, and shared dependencies; use `tearDown()` to remove temporary files and dispose Flutter resources.
-- For async code, `await` all futures and use `expectLater()` when asserting future failures.
+- Test public APIs and state transitions rather than private helpers. Examples: `RoboflowProvider` getters and methods in `lib/roboflow_provider.dart`, `HostedInferenceResult.failed()` in `lib/roboflow_inference_service.dart`, `UploadTrainingResult.failed()` and `.ok()` in `lib/roboflow_service.dart`.
+- Use `setUp()` for shared provider/service setup once tests exist.
+- Use `testWidgets()` for Flutter UI behavior in `lib/upload_screen.dart` and `lib/main.dart`; wrap widgets with required providers, e.g. `ChangeNotifierProvider(create: (_) => RoboflowProvider(), child: const MaterialApp(home: UploadScreen()))`.
+- For backend endpoint tests, use Django's test `Client` against `backend/training/views.py` and assert JSON bodies plus status codes.
 
 ## Mocking
 
-**Framework:** Not configured.
+**Framework:** Not detected.
 
 **Patterns:**
-```dart
-import 'package:flutter_test/flutter_test.dart';
-
-void main() {
-  group('ModelUpdater', () {
-    test('returns null when no model update is configured', () async {
-      // Prefer injectable wrappers for HTTP, SharedPreferences, and paths
-      // before testing `lib/model_updater.dart` network/file behavior.
-    });
-  });
+```typescript
+// Current code uses static services and top-level dotenv access, so prefer adding seams
+// before heavy mocking. Example target seam for future tests:
+class FakeUploadService {
+  Future<UploadTrainingResult> uploadBatchForTraining(files, label) async {
+    return UploadTrainingResult.ok(files.length);
+  }
 }
 ```
 
 **What to Mock:**
-- Mock or fake network calls from `RoboflowService` in `lib/roboflow_service.dart`, especially `http.post()` and `http.get()` calls that upload images, start training, poll jobs, and fetch export URLs.
-- Mock or fake file-system paths and storage dependencies in `ModelUpdater` in `lib/model_updater.dart`: `getApplicationDocumentsDirectory()`, `SharedPreferences.getInstance()`, and model file writes.
-- Mock or wrap image picker and camera/gallery behavior before widget testing `ScanPage` and `TrainPage` in `lib/main.dart`; direct `ImagePicker` calls are not test-friendly without injection.
-- Mock or wrap TensorFlow Lite and ML Kit boundaries in `Classifier` and `CloudVisionService` (`lib/classifier.dart`, `lib/cloud_vision_service.dart`) because interpreter and recognizer creation depend on native plugins and bundled assets.
+- Mock network calls to Roboflow and the backend for `lib/roboflow_inference_service.dart`, `lib/roboflow_service.dart`, and `lib/model_updater.dart`.
+- Mock or fake file/image inputs for provider and service tests; avoid requiring camera/gallery access in automated tests.
+- Mock `SharedPreferences` for `ModelUpdater.checkAndUpdate()` in `lib/model_updater.dart` using `SharedPreferences.setMockInitialValues()` once tests are added.
+- Mock Django Roboflow SDK calls in `backend/training/views.py` so backend tests do not upload datasets or start training.
 
 **What NOT to Mock:**
-- Do not mock pure formatting and state helpers once they are public or extractable, such as safe label normalization behavior from `RoboflowService._safe()` and class name normalization in `_LabelDialogState._submit()` in `lib/main.dart`; prefer direct unit tests when possible.
-- Do not mock simple value classes and factories in `lib/roboflow_service.dart`: `TrainingStatus`, `VersionGenerationResult`, `TrainingJobStartResult`, and `PipelineResult`.
-- Do not mock Flutter widgets solely to test layout. Pump the real widget with fake dependencies and assert visible text, enabled/disabled buttons, and state transitions.
+- Do not mock `RoboflowProvider` when testing `UploadScreen`; use the real provider from `lib/roboflow_provider.dart` unless testing an integration seam.
+- Do not mock simple result value objects like `HostedInferenceResult`, `UploadTrainingResult`, `VisionResult`, or `VisionLabel`; construct real instances.
+- Do not run real Roboflow requests, camera capture, gallery picker, ML Kit, or TFLite inference in unit tests.
 
 ## Fixtures and Factories
 
 **Test Data:**
-```dart
-import 'dart:io';
-import 'package:flutter_test/flutter_test.dart';
+```typescript
+// Recommended fixture pattern for future Dart tests:
+const successfulInferenceJson = {
+  'top': 'Pepsi-500ml',
+  'confidence': 0.91,
+};
 
-Future<File> writeTempImageBytes(List<int> bytes) async {
-  final dir = await Directory.systemTemp.createTemp('vision_test_');
-  return File('${dir.path}/sample.jpg').writeAsBytes(bytes);
-}
+const uploadOk = UploadTrainingResult(
+  success: true,
+  uploaded: 2,
+  total: 2,
+  message: 'Uploaded 2 images and triggered training.',
+);
 ```
 
 **Location:**
-- No fixtures are currently present.
-- Add reusable fixture helpers under `test/fixtures/` or `test/helpers/` when tests need image bytes, fake Roboflow responses, fake model version responses, or fake TFLite labels.
-- Keep large model fixtures out of tests unless absolutely necessary. Prefer a tiny synthetic image fixture and mocked classifier/model boundaries for most tests of `lib/main.dart`.
+- No fixture directory exists. Keep small fixtures inline in the relevant `test/*_test.dart` file.
+- Add larger JSON/API fixtures under `test/fixtures/` only when multiple test files share them.
+- Keep binary image/model fixtures minimal. Prefer generated temporary files for tests around `File` lists in `lib/roboflow_provider.dart`.
 
 ## Coverage
 
-**Requirements:** None enforced.
+**Requirements:** None enforced. No coverage thresholds or CI coverage gates are configured.
 
 **View Coverage:**
 ```bash
 flutter test --coverage
-# Open or upload `coverage/lcov.info` with an LCOV-compatible viewer.
+# open or upload coverage/lcov.info with an LCOV viewer if needed
 ```
 
 ## Test Types
 
 **Unit Tests:**
-- Not present. Add unit tests first for deterministic service behavior in `lib/roboflow_service.dart`, especially result factories, HTTP status handling, training status mapping, timeout behavior, and split/tag/name generation.
-- Add unit tests for `lib/model_updater.dart` only after dependency seams are introduced for HTTP, path provider, shared preferences, and file writes.
-- Add unit tests for image preprocessing and result mapping in `lib/classifier.dart` and `lib/cloud_vision_service.dart` by wrapping TFLite/ML Kit dependencies or moving pure data-shaping logic into testable helpers.
+- Best current targets are pure or mostly pure logic: `RoboflowProvider` state transitions in `lib/roboflow_provider.dart`, result factories in `lib/roboflow_service.dart`, parsing behavior in `lib/roboflow_inference_service.dart`, and URI redaction/truncation behavior in `lib/api_logger.dart` if helper visibility is adjusted or tested through public logging.
+- Service tests need dependency injection before they can avoid real HTTP, dotenv, and filesystem side effects.
 
 **Integration Tests:**
-- Not present. Add integration-style tests only after unit seams exist, because `lib/main.dart`, `lib/classifier.dart`, `lib/model_updater.dart`, and `lib/roboflow_service.dart` currently call plugins, filesystem APIs, network APIs, and bundled assets directly.
-- Use integration tests for full scan and training workflows when a device/emulator and plugin setup are required.
+- Not configured. Add Flutter integration tests only for device-level camera/gallery flows after unit/widget coverage exists.
+- Backend integration tests can use Django test client for `backend/training/views.py`; mock Roboflow SDK calls and assert the request validation and scheduling response.
 
 **E2E Tests:**
-- Not used. No `integration_test` dependency or `integration_test/` directory is present in `pubspec.yaml`.
-- Camera/gallery and native ML flows should be verified manually with `flutter run -d <deviceId>` until an integration test harness is added.
+- Not used. Camera, gallery, Roboflow, ML Kit, and TFLite flows are currently verified manually on a camera-capable emulator/device.
 
 ## Common Patterns
 
 **Async Testing:**
-```dart
-test('returns a failed result when training cannot start', () async {
-  final result = await RoboflowService.startTraining('1');
+```typescript
+test('uploadAndTrain ignores empty state', () async {
+  final provider = RoboflowProvider();
 
-  expect(result.success, isFalse);
-  expect(result.error, isNotEmpty);
+  await provider.uploadAndTrain();
+
+  expect(provider.isProcessing, isFalse);
+  expect(provider.statusMessage, isNull);
 });
 ```
 
 **Error Testing:**
-```dart
-test('failed pipeline results carry an error message', () {
-  final result = PipelineResult.failed('Training timed out after 60 minutes.');
+```typescript
+test('failed inference result carries error message', () {
+  final result = HostedInferenceResult.failed('Missing ROBOFLOW_API_KEY.');
 
   expect(result.success, isFalse);
-  expect(result.error, contains('timed out'));
-});
-```
-
-**Widget Testing:**
-```dart
-testWidgets('shows scanner loading state before the model is ready', (tester) async {
-  // Add an injectable fake classifier before pumping `ScanPage` from `lib/main.dart`.
-  // Then assert visible loading text and disabled scan actions.
+  expect(result.label, 'Error');
+  expect(result.confidence, 0);
+  expect(result.error, contains('ROBOFLOW_API_KEY'));
 });
 ```
 
 ---
 
-*Testing analysis: 2026-05-25*
+*Testing analysis: 2026-05-27*

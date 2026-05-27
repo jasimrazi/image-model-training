@@ -1,195 +1,223 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-05-25
+**Analysis Date:** 2026-05-27
 
 ## Tech Debt
 
-**Single oversized UI file:**
-- Issue: `lib/main.dart` contains app shell, scanner flow, training flow, dialogs, styling constants, and shared widgets in one 2,004-line source file.
-- Files: `lib/main.dart`
-- Impact: Small UI changes risk unrelated scanner/training regressions, widget tests are hard to target, and feature ownership is unclear.
-- Fix approach: Split by feature into `lib/scan/`, `lib/train/`, and `lib/widgets/`; keep `lib/main.dart` limited to bootstrapping, theme, and top-level navigation.
+**Oversized UI entrypoint:**
+- Issue: `lib/main.dart` contains the app shell, scan flow, an unused training flow, shared widgets, result rendering, and upload orchestration in one 1,805-line file.
+- Files: `lib/main.dart`, `lib/upload_screen.dart`, `lib/roboflow_provider.dart`
+- Impact: Navigation and scan changes are risky because private widgets, duplicated training concepts, and shared styling are tightly coupled inside one file.
+- Fix approach: Split scan UI into `lib/scan/`, shared widgets into `lib/widgets/`, and remove or route the legacy `TrainPage` code in `lib/main.dart` after verifying `UploadScreen` is the supported train tab.
 
-**Duplicate inference implementations:**
-- Issue: `lib/classifier.dart` performs TFLite classification for the active UI while `lib/cloud_vision_service.dart` defines a separate TFLite + ML Kit/OCR service that is not imported by the current UI.
-- Files: `lib/classifier.dart`, `lib/cloud_vision_service.dart`, `lib/main.dart`
-- Impact: Model preprocessing, output-shape handling, error handling, and resource disposal can diverge; future model updates may fix one path while leaving the other broken.
-- Fix approach: Consolidate inference behind one service interface. Move OCR/ML Kit behavior into the active service only if the UI uses it, then delete or quarantine unused code.
+**Duplicate training upload flows:**
+- Issue: `lib/main.dart` defines `TrainPage` and sequential single-image upload logic, while the actual tab uses `UploadScreen` and `RoboflowProvider` batch upload state.
+- Files: `lib/main.dart`, `lib/upload_screen.dart`, `lib/roboflow_provider.dart`, `lib/roboflow_service.dart`
+- Impact: Future upload behavior can be fixed in one flow while stale UI copy and upload behavior remain in the other; `TrainPage` also tells users that `ModelUpdater` updates the app even though it is not invoked by startup.
+- Fix approach: Keep one training flow. Prefer `UploadScreen` + `RoboflowProvider` because `_AppShell` instantiates `UploadScreen` at `lib/main.dart:88`; delete or migrate `TrainPage` from `lib/main.dart`.
 
-**Dynamic result maps at UI boundary:**
-- Issue: `Classifier.classify()` returns `Map<String, dynamic>` and `ScanPage` casts keys such as `label`, `confidence`, `isRecognized`, and `all` directly.
-- Files: `lib/classifier.dart`, `lib/main.dart`
-- Impact: Typos or type changes surface as runtime failures instead of analyzer errors.
-- Fix approach: Replace the map with a typed immutable result class, for example `ClassificationResult`, and update `_ScanCard` in `lib/main.dart` to consume fields.
+**Unused / disconnected local inference pipeline:**
+- Issue: `CloudVisionService`, `Classifier`, and `ModelUpdater` are present but not wired into `main()` or the active scan flow, which uses hosted Roboflow inference only.
+- Files: `lib/main.dart`, `lib/cloud_vision_service.dart`, `lib/classifier.dart`, `lib/model_updater.dart`, `README.md`
+- Impact: The app advertises local TFLite + ML Kit support, but active scanning does not initialize or dispose these services; model updater behavior can silently drift from actual runtime behavior.
+- Fix approach: Either wire local inference behind a clear mode switch in `ScanPage`, or move inactive files behind a documented experimental path and remove user-facing claims from `README.md` and UI copy.
 
-**Environment variable naming drift:**
-- Issue: `lib/model_updater.dart` reads `WORKSPACE` and `PROJECT`, while the environment example uses Roboflow-prefixed names; `lib/roboflow_service.dart` reads only `PROJECT` for upload.
-- Files: `lib/model_updater.dart`, `lib/roboflow_service.dart`, `.env.example`
-- Impact: A developer can configure documented variables and still silently fall back to bundled models or fail uploads.
-- Fix approach: Centralize config parsing in a `lib/config.dart` helper that accepts one canonical variable set and validates required values at startup.
+**Flutter `.env` bundled as an app asset:**
+- Issue: `pubspec.yaml` includes `.env` under Flutter assets, and `lib/main.dart` loads `.env` at startup.
+- Files: `pubspec.yaml`, `lib/main.dart`, `.gitignore`
+- Impact: Any secret placed in `.env` can be packaged into mobile builds; `.gitignore` prevents source control leakage but does not prevent runtime asset extraction.
+- Fix approach: Do not package secrets in Flutter assets. Use a backend-only secret boundary and provide non-secret public configuration through build-time defines or a checked-in example config.
 
-**Release packaging still uses template identity and debug signing:**
-- Issue: Android keeps the template package name and debug release signing configuration.
-- Files: `android/app/build.gradle.kts`
-- Impact: Release builds are not production-distributable and can collide with other template apps using `com.example.vision`.
-- Fix approach: Set a real `applicationId`, configure release signing through secure Gradle properties, and keep signing secrets out of source control.
+**Backend implementation committed inside app repo with generated/runtime artifacts:**
+- Issue: The repo contains `backend/db.sqlite3` and Python `__pycache__` files alongside source.
+- Files: `backend/db.sqlite3`, `backend/__pycache__/manage.cpython-310.pyc`, `backend/training/__pycache__/views.cpython-310.pyc`, `backend/training_backend/__pycache__/settings.cpython-310.pyc`
+- Impact: Runtime artifacts increase repository noise and can contain stale code or local state. SQLite files can accidentally capture development data.
+- Fix approach: Add `backend/db.sqlite3`, `backend/**/__pycache__/`, and `backend/**/*.pyc` to `.gitignore`; remove committed generated/runtime artifacts.
 
 ## Known Bugs
 
-**Train/valid/test split calculation is ignored:**
-- Symptoms: `_TrainPageState._upload()` calculates `final split = _splitFor(i, _images.length)` but `RoboflowService.uploadForTraining()` always sends `split=train`.
-- Files: `lib/main.dart`, `lib/roboflow_service.dart`
-- Trigger: Upload a training batch from the Train tab; all images are submitted to the train split.
-- Workaround: Manually split images in Roboflow after upload.
+**Upload progress reports success when backend only schedules work:**
+- Symptoms: `UploadTrainingResult.ok()` says images were uploaded and training was triggered when the Django endpoint only starts a daemon thread and returns `scheduled` before Roboflow work completes.
+- Files: `lib/roboflow_service.dart`, `lib/roboflow_provider.dart`, `backend/training/views.py`
+- Trigger: Submit images through `UploadScreen` and receive any 2xx response from `POST /api/trigger-training/`.
+- Workaround: Treat current success messages as scheduling confirmation only; inspect backend logs for actual Roboflow upload/version/training failures.
 
-**Individual tag mode is unreachable:**
-- Symptoms: `_TagMode.individual` exists but no UI changes `_tagMode` away from `_TagMode.same`; analyzer reports the enum value as unused.
-- Files: `lib/main.dart`
-- Trigger: Use the Train tab and attempt to label images individually; no control exposes the mode.
-- Workaround: Upload separate batches per class label.
+**Backend background training can be lost on process restart:**
+- Symptoms: A training job can disappear after the HTTP response if the Django process exits because `_upload_generate_and_train` runs in a daemon thread without persistent job state.
+- Files: `backend/training/views.py`
+- Trigger: Stop/reload the Django process after `trigger_training()` returns and before Roboflow upload/training completes.
+- Workaround: Keep the dev server alive and monitor logs; use a real queue or job runner before relying on this in production.
 
-**Invalid or unsupported image files can crash classification:**
-- Symptoms: `img.decodeImage(bytes)!` force-unwraps a nullable decode result.
+**Model updater is referenced by UX but not executed:**
+- Symptoms: The train flow says the app's `ModelUpdater` detects and downloads exported TFLite models on next launch, but `main()` never calls `ModelUpdater.checkAndUpdate()` and `Classifier.loadModel()` is not used by active scan.
+- Files: `lib/main.dart`, `lib/model_updater.dart`, `lib/classifier.dart`
+- Trigger: Train/export a model and relaunch the app.
+- Workaround: Manually replace `assets/model.tflite` and `assets/labels.txt`, or wire `ModelUpdater` into startup before exposing this instruction.
+
+**Local classifier can crash on invalid image input:**
+- Symptoms: `img.decodeImage(bytes)!` force-unwraps decoding and crashes if the file is not decodable.
 - Files: `lib/classifier.dart`
-- Trigger: Select a corrupt, unsupported, or unreadable image from camera/gallery.
-- Workaround: Avoid unsupported image formats; add a null check before running inference.
-
-**Model output length assumes bundled label count:**
-- Symptoms: `Classifier.classify()` allocates output using `_labels.length` even when a downloaded custom model has a different output tensor size.
-- Files: `lib/classifier.dart`, `lib/model_updater.dart`, `assets/labels.txt`
-- Trigger: Download a custom model from `ModelUpdater.checkAndUpdate()` whose class count differs from `assets/labels.txt`.
-- Workaround: Keep downloaded model outputs aligned exactly with bundled `assets/labels.txt`.
+- Trigger: Call `Classifier.classify()` with a corrupt or unsupported image file.
+- Workaround: Only pass validated files from `image_picker`; add null handling before using this class in production UI.
 
 ## Security Considerations
 
-**Secrets are bundled into app assets:**
-- Risk: `pubspec.yaml` declares `.env` as a Flutter asset, and `lib/main.dart` loads it with `dotenv.load(fileName: '.env')`; Roboflow API keys in a bundled mobile asset can be extracted from the app package.
-- Files: `pubspec.yaml`, `lib/main.dart`, `.env`
-- Current mitigation: `.gitignore` ignores `.env`; `RoboflowService` redacts the API key in debug request logs.
-- Recommendations: Move Roboflow training/upload operations behind a backend service, issue scoped short-lived tokens, and remove `.env` from bundled Flutter assets.
+**Unauthenticated CSRF-exempt training endpoint:**
+- Risk: Any client that can reach the Django server can submit files and trigger Roboflow uploads/training because `trigger_training` is decorated with `@csrf_exempt` and has no authentication or shared-token check.
+- Files: `backend/training/views.py`, `backend/training/urls.py`, `backend/training_backend/urls.py`
+- Current mitigation: None detected in code; endpoint validates required fields only.
+- Recommendations: Require server-side authentication or a signed request token, rate-limit requests, and keep Roboflow credentials exclusively on the backend.
 
-**API keys are sent in query strings:**
-- Risk: Roboflow URLs include `api_key` as a query parameter, which can appear in proxies, crash reports, platform logs, or analytics.
-- Files: `lib/roboflow_service.dart`, `lib/model_updater.dart`
-- Current mitigation: Debug logging in `lib/roboflow_service.dart` redacts the key before printing upload URLs.
-- Recommendations: Avoid client-side Roboflow API keys; if direct calls remain, keep all authenticated URLs out of logs and prefer a server-side proxy.
+**Client-controlled workspace and project IDs:**
+- Risk: The Flutter client sends `workspace_id` and `project_id` in multipart fields, and the backend trusts them when using its Roboflow API key.
+- Files: `lib/roboflow_service.dart`, `backend/training/views.py`
+- Current mitigation: Empty-value validation only.
+- Recommendations: Configure allowed workspace/project values on the backend and reject client-supplied values that do not match the server allowlist.
 
-**Downloaded models are not integrity-checked:**
-- Risk: `ModelUpdater.checkAndUpdate()` writes downloaded bytes to app storage and `Classifier.loadModel()` loads them without checksum, signature, size, or schema validation.
-- Files: `lib/model_updater.dart`, `lib/classifier.dart`
-- Current mitigation: HTTPS is used for Roboflow URLs generated with `Uri.https`; direct `MODEL_DOWNLOAD_URL` is accepted as configured.
-- Recommendations: Require HTTPS, pin an expected hash/version manifest, validate tensor shapes before saving, and keep the previous known-good model until validation passes.
+**Filename path traversal / unsafe uploaded names:**
+- Risk: `backend/training/views.py` writes uploaded files with `os.path.join(class_dir, f.name)` without normalizing the basename.
+- Files: `backend/training/views.py`
+- Current mitigation: Files are placed under a temporary class directory, but uploaded names are not sanitized in backend code.
+- Recommendations: Use a generated filename or `os.path.basename()` plus extension allowlisting; validate MIME type and size before writing chunks.
 
-**iOS/macOS permission usage descriptions are missing:**
-- Risk: Camera/gallery access requires platform usage description keys; missing iOS keys can cause runtime denial or App Store rejection.
-- Files: `ios/Runner/Info.plist`, `macos/Runner/Info.plist`, `lib/main.dart`
-- Current mitigation: Android declares `android.permission.CAMERA` and `android.permission.READ_EXTERNAL_STORAGE` in `android/app/src/main/AndroidManifest.xml`.
-- Recommendations: Add `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`, and any platform-specific keys required by `image_picker` before shipping camera/gallery flows.
+**Mobile API key exposure:**
+- Risk: `RoboflowInferenceService` reads `ROBOFLOW_API_KEY` in the Flutter app and sends it as a query parameter to Roboflow; query parameters are redacted in `ApiLogger`, but a packaged `.env` asset or network instrumentation can expose the key.
+- Files: `lib/roboflow_inference_service.dart`, `lib/api_logger.dart`, `pubspec.yaml`
+- Current mitigation: `ApiLogger._redactUri()` masks `api_key` in debug log URLs.
+- Recommendations: Proxy hosted inference through the backend or use constrained public inference credentials; never package high-privilege Roboflow keys into mobile builds.
+
+**Development Django defaults are unsafe for deployment:**
+- Risk: Django settings enable debug by environment default and fall back to a development secret when no `DJANGO_SECRET_KEY` is supplied.
+- Files: `backend/training_backend/settings.py`, `backend/README.md`
+- Current mitigation: `ALLOWED_HOSTS` defaults to localhost addresses.
+- Recommendations: Fail startup when production secrets are absent, set debug false by deployment default, and document a production settings profile.
 
 ## Performance Bottlenecks
 
-**Synchronous image reads in inference path:**
-- Problem: `CloudVisionService.scanFile()` calls `imageFile.readAsBytesSync()` on the calling isolate.
-- Files: `lib/cloud_vision_service.dart`
-- Cause: File IO and decode work run synchronously before resizing and inference.
-- Improvement path: Use `await imageFile.readAsBytes()` and move decode/resize/inference preprocessing to an isolate for large images.
+**Sequential hosted inference for gallery scans:**
+- Problem: `_process()` awaits each `RoboflowInferenceService.scan()` one at a time.
+- Files: `lib/main.dart`, `lib/roboflow_inference_service.dart`
+- Cause: The loop at `lib/main.dart:231` serializes network calls, and each request has up to a 30-second timeout.
+- Improvement path: Use bounded concurrency for gallery batches and display per-image progress/results as each request completes.
 
-**Nested Dart lists for tensor creation:**
-- Problem: Both TFLite paths build deeply nested `List.generate` structures for every 224x224 image.
-- Files: `lib/classifier.dart`, `lib/cloud_vision_service.dart`
-- Cause: Per-pixel Dart object allocation is expensive and adds GC pressure.
-- Improvement path: Use typed buffers such as `Float32List`/`Uint8List` shaped for `tflite_flutter`, reuse buffers where safe, and benchmark on real devices.
+**Full base64 image uploads for inference:**
+- Problem: Hosted inference reads the complete image into memory, base64 encodes it, and posts the whole string body.
+- Files: `lib/roboflow_inference_service.dart`
+- Cause: `base64Encode(await image.readAsBytes())` duplicates image data in memory and expands payload size.
+- Improvement path: Resize/compress before inference, cap input dimensions, and use Roboflow's preferred binary upload format if available.
 
-**Sequential network uploads without timeouts:**
-- Problem: Training images upload one at a time, and HTTP calls do not set request timeouts.
-- Files: `lib/main.dart`, `lib/roboflow_service.dart`, `lib/model_updater.dart`
-- Cause: `_TrainPageState._upload()` awaits each upload serially; `http.get()` and `http.post()` use default behavior without timeout/retry/backoff.
-- Improvement path: Add `timeout()` around all network calls, retry transient 5xx/429 failures with backoff, and consider bounded concurrency for batch uploads.
+**Local TFLite preprocessing builds deeply nested Dart lists:**
+- Problem: `CloudVisionService._imageToInputTensor()` and `Classifier.classify()` allocate nested lists for every pixel and run on the UI isolate if called from UI.
+- Files: `lib/cloud_vision_service.dart`, `lib/classifier.dart`
+- Cause: Per-pixel `List.generate` structures create allocation-heavy tensors instead of typed buffers.
+- Improvement path: Convert preprocessing to typed arrays and move CPU-heavy image decode/resize/inference work off the UI isolate.
+
+**Backend training endpoint performs file writes before returning:**
+- Problem: The request handler writes every uploaded file to disk synchronously before returning `scheduled`.
+- Files: `backend/training/views.py`
+- Cause: File chunks are copied in the request thread before spawning the background thread.
+- Improvement path: Enforce upload limits, stream directly to durable job storage, and return a job ID after queueing rather than after all local writes finish.
 
 ## Fragile Areas
 
-**Model/label compatibility:**
-- Files: `lib/classifier.dart`, `lib/model_updater.dart`, `assets/model.tflite`, `assets/labels.txt`
-- Why fragile: Bundled labels are always used even for downloaded custom models, and the active classifier does not inspect output tensor shape before allocating output.
-- Safe modification: Any model change must update labels together and include a startup validation that compares model output length to label count.
-- Test coverage: No `test/` directory exists; no automated test validates tensor shape, label alignment, or custom model fallback.
+**Roboflow API response parsing:**
+- Files: `lib/roboflow_inference_service.dart`
+- Why fragile: `_parsePrediction()` supports a small set of response shapes and returns a generic successful result with `confidence: 0` for unrecognized JSON.
+- Safe modification: Add fixture-driven parser tests for Roboflow classify responses before changing the scan UI; surface unknown response shapes as failures instead of successful zero-confidence predictions.
+- Test coverage: No `test/**/*.dart` files detected.
 
-**Async UI state after plugin/network calls:**
-- Files: `lib/main.dart`
-- Why fragile: Camera/gallery selection, classification, dialogs, and uploads all mutate widget state after awaits; some paths use `mounted`, but `_process()` and `_upload()` include `setState()` calls after awaited work without comprehensive disposal guards.
-- Safe modification: Guard every post-await `setState()`/dialog operation with `if (!mounted) return;` and prevent overlapping scans/uploads while a previous operation is in flight.
-- Test coverage: No widget tests exercise navigation away during scanning or upload.
+**Roboflow backend SDK workflow:**
+- Files: `backend/training/views.py`, `requirements.txt`
+- Why fragile: The code depends on SDK methods such as `workspace.upload_dataset()`, `project.generate_version()`, `version.export()`, and `roboflow.adapters.rfapi.start_version_training()` without tests or version-specific wrappers.
+- Safe modification: Encapsulate SDK calls behind a service module and add mocked Django tests for success/failure paths before changing training configuration.
+- Test coverage: No Django test files detected.
 
-**Roboflow API behavior is hard-coded in client code:**
-- Files: `lib/roboflow_service.dart`, `lib/main.dart`
-- Why fragile: Upload endpoint, query parameters, default batch name, and split handling are embedded in mobile code.
-- Safe modification: Wrap Roboflow calls in a service that accepts an injectable HTTP client and explicit request objects; keep API-specific constants in one config file.
-- Test coverage: No tests cover missing config, non-2xx responses, malformed labels, large batches, or partial upload failures.
+**Platform permissions and gallery storage:**
+- Files: `android/app/src/main/AndroidManifest.xml`, `ios/Runner/Info.plist`, `lib/main.dart`, `lib/upload_screen.dart`
+- Why fragile: Android declares camera/internet/storage permissions, but iOS `Info.plist` does not include camera/photo usage description keys while both scan and upload flows call `ImageSource.camera` and `pickMultiImage()`.
+- Safe modification: Add platform permission keys and validate camera/gallery flows on real Android and iOS devices whenever picker behavior changes.
+- Test coverage: Device permission flows are not covered by automated tests.
+
+**Environment variable naming drift:**
+- Files: `lib/roboflow_service.dart`, `lib/roboflow_inference_service.dart`, `lib/model_updater.dart`, `README.md`, `backend/README.md`
+- Why fragile: Some paths accept `ROBOFLOW_PROJECT` / `ROBOFLOW_WORKSPACE`; `ModelUpdater` uses `PROJECT` / `WORKSPACE`; docs list only a subset of required variables.
+- Safe modification: Centralize environment access in one Dart config class and one backend settings module; document canonical names and aliases.
+- Test coverage: No config-loading tests detected.
 
 ## Scaling Limits
 
-**Local training image list:**
-- Current capacity: The UI recommends 50+ images and stores every selected image path in `_images`.
-- Limit: Large batches increase memory pressure during thumbnail rendering and make uploads slow because they are sequential.
-- Scaling path: Paginate thumbnails, cap batch size per upload, compress/resize before upload, and resume failed batches by persisting an upload queue.
+**Training jobs:**
+- Current capacity: One request spawns one in-process daemon thread and Roboflow upload uses `num_workers=10`.
+- Limit: Multiple concurrent requests can create uncontrolled threads, disk usage, and Roboflow training jobs from one Django process.
+- Scaling path: Use a job queue such as Celery/RQ, persistent job records, concurrency limits, and status endpoints.
 
-**Client-side model updates:**
-- Current capacity: One cached `custom_model.tflite` and one integer `saved_model_version` in app documents/preferences.
-- Limit: No rollback metadata, no multiple model channels, and no validation before replacing the local model.
-- Scaling path: Store model metadata alongside file hashes, keep current and previous models, and atomically promote validated downloads.
+**Mobile batch uploads:**
+- Current capacity: `UploadScreen` allows arbitrary image counts and `RoboflowService.uploadBatchForTraining()` sends all selected files in one multipart request with a 60-second timeout.
+- Limit: Large batches can exceed memory, request size, backend disk, or timeout limits.
+- Scaling path: Enforce max image count/size in UI and backend, chunk uploads, and report per-file validation failures.
+
+**Local image rendering:**
+- Current capacity: Selected/scanned images are stored as `File` references and rendered with `Image.file` in grids/lists.
+- Limit: Large batches can create heavy image decoding and scrolling jank because thumbnails are not explicitly generated or cached.
+- Scaling path: Generate thumbnails for grid display and cap in-memory visible items.
 
 ## Dependencies at Risk
 
-**Unused or partially used ML/camera packages:**
-- Risk: `camera`, `google_mlkit_image_labeling`, `google_mlkit_text_recognition`, and `google_mlkit_object_detection` are declared, but the active UI uses `image_picker` plus `Classifier` rather than `camera` APIs or `CloudVisionService`.
-- Impact: App size, native permissions, and platform integration complexity increase without active feature value.
-- Migration plan: Remove unused dependencies after confirming feature scope, or wire `CloudVisionService` into the UI and test ML Kit behavior on Android/iOS.
+**Roboflow Python SDK:**
+- Risk: `requirements.txt` allows any `roboflow>=1.1,<2.0`, while backend code uses SDK and internal adapter APIs that may change across minor releases.
+- Impact: Upload/version/training triggers can fail at runtime without compile-time checks.
+- Migration plan: Pin a tested Roboflow SDK minor version, wrap SDK calls in `backend/training/`, and add mocked integration tests.
 
-**Platform storage permissions:**
-- Risk: Android declares legacy `READ_EXTERNAL_STORAGE` but no newer media permissions were detected.
-- Impact: Gallery access can behave differently on newer Android versions depending on `image_picker` behavior and target SDK.
-- Migration plan: Verify `image_picker` permission requirements for the resolved version and target SDK, then update `android/app/src/main/AndroidManifest.xml` with only required modern permissions.
+**Google ML Kit Flutter plugins:**
+- Risk: `google_mlkit_image_labeling`, `google_mlkit_text_recognition`, and `google_mlkit_object_detection` are declared even though only text recognition and image labeling are used in inactive local inference code.
+- Impact: App size and native model dependency surface stay larger than the active hosted-inference flow requires.
+- Migration plan: Remove unused ML Kit plugins if local inference is not supported, or wire them into a maintained local scan path.
+
+**Flutter analyzer findings:**
+- Risk: `flutter analyze` reports 16 info-level issues including production `print()` usage and deprecated `withOpacity()` calls.
+- Impact: New analyzer rule elevations can turn informational issues into CI/blocking warnings later.
+- Migration plan: Replace `print()` with `debugPrint` guarded by `kDebugMode` or structured logging, remove unused imports, and migrate `withOpacity()` to `withValues()`.
 
 ## Missing Critical Features
 
-**Automated tests:**
-- Problem: `flutter test` reports `Test directory "test" not found.`
-- Blocks: Safe refactoring of `lib/main.dart`, model update logic, Roboflow upload behavior, and classifier edge cases.
+**No automated test coverage:**
+- Problem: No `test/**/*.dart` files and no backend test files were detected.
+- Blocks: Safe refactors of Roboflow response parsing, upload state, local classifier preprocessing, and backend training orchestration.
 
-**Operational observability:**
-- Problem: Failures are mostly `print`, `debugPrint`, boolean returns, or brief `SnackBar` messages.
-- Blocks: Diagnosing model download failures, upload failures, and inference failures on user devices.
+**No job status tracking:**
+- Problem: The backend returns only immediate scheduling status and does not expose job IDs, completion status, or failure details.
+- Blocks: The Flutter UI cannot show whether Roboflow upload, dataset generation, export, or training actually succeeded.
 
-**Robust release configuration:**
-- Problem: Android release signing and application identity are still template defaults.
-- Blocks: Store distribution and production crash/security review.
+**No production deployment boundary:**
+- Problem: The repo has a proof-of-concept Django backend, local SQLite database, no deployment config, and no CI pipeline files detected.
+- Blocks: Reliable production rollout, secret management, repeatable backend workers, and automated verification.
 
 ## Test Coverage Gaps
 
-**Classifier edge cases:**
-- What's not tested: Corrupt images, custom model output shape mismatch, label count mismatch, threshold behavior, and TFLite interpreter failure.
-- Files: `lib/classifier.dart`, `assets/model.tflite`, `assets/labels.txt`
-- Risk: Users can see crashes or incorrect labels after model changes.
+**Hosted inference parsing:**
+- What's not tested: `_parsePrediction()`, `_latestVersion()`, non-2xx errors, malformed JSON, timeouts, and missing env-variable failures.
+- Files: `lib/roboflow_inference_service.dart`
+- Risk: Roboflow API response shape changes can produce misleading labels or generic successful responses.
 - Priority: High
 
-**Model updater network and fallback behavior:**
-- What's not tested: Missing env config, non-2xx downloads, invalid version bodies, cached model fallback, file write failures, and downloaded model validation.
-- Files: `lib/model_updater.dart`
-- Risk: App startup can silently use stale or invalid models.
+**Training upload state:**
+- What's not tested: `RoboflowProvider.uploadAndTrain()`, `RoboflowService.uploadBatchForTraining()`, empty input validation, backend error body handling, and timeout behavior.
+- Files: `lib/roboflow_provider.dart`, `lib/roboflow_service.dart`, `lib/upload_screen.dart`
+- Risk: UI can report incorrect status or get stuck in processing state after network failures.
 - Priority: High
 
-**Roboflow upload behavior:**
-- What's not tested: API key absence, label sanitization, split assignment, partial failures, response parsing, timeouts, and retry behavior.
-- Files: `lib/roboflow_service.dart`, `lib/main.dart`
-- Risk: Training data can be uploaded to the wrong split or fail without actionable user feedback.
+**Backend endpoint security and cleanup:**
+- What's not tested: Required-field validation, file sanitization, temporary directory cleanup, Roboflow SDK failure paths, and unauthenticated access behavior.
+- Files: `backend/training/views.py`
+- Risk: Unsafe uploads, orphaned temp files, and silent background failures can reach production unnoticed.
 - Priority: High
 
-**Scanner and training widget flows:**
-- What's not tested: Camera/gallery cancellation, multiple selected images, unknown-product dialog, submit-for-training flow, navigation during async work, and disabled button states.
-- Files: `lib/main.dart`
-- Risk: Common user flows can regress during UI refactors.
+**Local TFLite / ML Kit pipeline:**
+- What's not tested: Asset loading, output shape/label alignment, corrupt image handling, score normalization, and resource disposal.
+- Files: `lib/cloud_vision_service.dart`, `lib/classifier.dart`, `lib/model_updater.dart`
+- Risk: Local inference can crash or produce incorrect labels when it is wired into UI.
 - Priority: Medium
 
 ---
 
-*Concerns audit: 2026-05-25*
+*Concerns audit: 2026-05-27*
