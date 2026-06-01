@@ -40,5 +40,3 @@ flutter:
 
   assets:
     - .env
-    - assets/model.tflite
-    - assets/labels.txt
