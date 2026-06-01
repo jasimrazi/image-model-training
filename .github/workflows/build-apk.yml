@@ -8,6 +8,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Build Android APK
@@ -55,3 +58,14 @@ jobs:
           name: vision_apk(v1.0.0)
           path: build/app/outputs/flutter-apk/vision_apk(v1.0.0).apk
           if-no-files-found: error
+
+      - name: Publish APK to GitHub Releases
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: vision_apk(v1.0.0)
+          files: build/app/outputs/flutter-apk/vision_apk(v1.0.0).apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
