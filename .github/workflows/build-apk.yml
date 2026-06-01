@@ -61,11 +61,17 @@ jobs:
 
       - name: Publish APK to GitHub Releases
         if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.0
-          name: vision_apk(v1.0.0)
-          files: build/app/outputs/flutter-apk/vision_apk(v1.0.0).apk
-          make_latest: true
+        timeout-minutes: 10
+        run: |
+          if ! gh release view v1.0.0 >/dev/null 2>&1; then
+            gh release create v1.0.0 \
+              --title "vision_apk(v1.0.0)" \
+              --notes "Automated APK release." \
+              --latest
+          fi
+
+          gh release upload v1.0.0 \
+            "build/app/outputs/flutter-apk/vision_apk(v1.0.0).apk" \
+            --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
