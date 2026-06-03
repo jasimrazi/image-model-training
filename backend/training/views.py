@@ -1,18 +1,81 @@
+import base64
 import json
 import logging
 import os
 import shutil
 import tempfile
 import threading
+import requests
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 logger = logging.getLogger(__name__)
 
+
+def _authorized(request):
+    expected_token = os.environ.get("MCP_CLIENT_TOKEN", "").strip()
+    if not expected_token:
+        return True
+    provided_token = request.headers.get("X-MCP-Client-Token", "").strip()
+    return provided_token == expected_token
+
+
+@csrf_exempt
+def infer_image(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+    if not _authorized(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    try:
+        image = request.FILES.get("image")
+        if image is None:
+            return JsonResponse({"error": "image is required"}, status=400)
+
+        api_key = os.environ.get("ROBOFLOW_API_KEY", "").strip()
+        project_id = (
+            request.POST.get("project_id", "").strip()
+            or os.environ.get("ROBOFLOW_PROJECT", "").strip()
+            or os.environ.get("PROJECT", "").strip()
+        )
+        version = (
+            request.POST.get("version", "").strip()
+            or os.environ.get("ROBOFLOW_INFER_VERSION", "").strip()
+            or "latest"
+        )
+
+        if not api_key:
+            return JsonResponse({"error": "Server is missing ROBOFLOW_API_KEY"}, status=500)
+        if not project_id:
+            return JsonResponse({"error": "ROBOFLOW_PROJECT is required"}, status=400)
+
+        response = requests.post(
+            f"https://classify.roboflow.com/{project_id}/{version}",
+            params={"api_key": api_key},
+            data=base64.b64encode(image.read()).decode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"raw": response.text}
+
+        return JsonResponse(payload, status=response.status_code, safe=False)
+    except requests.RequestException as e:
+        logger.exception("Roboflow inference request failed")
+        return JsonResponse({"error": str(e)}, status=502)
+    except Exception as e:
+        logger.exception("Failed to process inference request")
+        return JsonResponse({"error": str(e)}, status=500)
+
 @csrf_exempt
 def trigger_training(request):
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
+    if not _authorized(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
 
     try:
         # 1. Extract metadata and files from the Flutter multipart request

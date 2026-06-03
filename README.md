@@ -35,6 +35,7 @@ A Flutter-based mobile proof-of-concept for image scanning, local vision inferen
 - `lib/upload_screen.dart` — upload UI for training data batches.
 - `lib/roboflow_provider.dart` — provider state management for training uploads.
 - `backend/` — minimal Django backend to trigger Roboflow dataset and YOLOv8 training.
+- `mcp_server/` — Python MCP server exposing scan and training upload tools.
 
 ## Requirements
 
@@ -73,6 +74,18 @@ python -m venv .venv
 pip install -r requirements.txt
 python manage.py runserver
 ```
+
+5. (Optional) Run the MCP server from `mcp_server/`:
+
+```bash
+cd mcp_server
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python server.py
+```
+
+For private MCP access, set the same `MCP_CLIENT_TOKEN` in Render and in each trusted user's MCP client environment. Do not publish this token.
 
 ## Notes
 

@@ -103,6 +103,10 @@ class RoboflowService {
       ApiLogger.request('POST', uri, label: 'Backend trigger & upload');
 
       final request = http.MultipartRequest('POST', uri);
+      final clientToken = dotenv.env['MCP_CLIENT_TOKEN'] ?? '';
+      if (clientToken.isNotEmpty) {
+        request.headers['X-MCP-Client-Token'] = clientToken;
+      }
 
       // 1. Attach metadata required by Django backend
       request.fields['workspace_id'] = workspace;
