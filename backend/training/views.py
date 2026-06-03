@@ -38,6 +38,11 @@ def infer_image(request):
             or os.environ.get("ROBOFLOW_PROJECT", "").strip()
             or os.environ.get("PROJECT", "").strip()
         )
+        workspace_id = (
+            request.POST.get("workspace_id", "").strip()
+            or os.environ.get("ROBOFLOW_WORKSPACE", "").strip()
+            or os.environ.get("WORKSPACE", "").strip()
+        )
         version = (
             request.POST.get("version", "").strip()
             or os.environ.get("ROBOFLOW_INFER_VERSION", "").strip()
@@ -48,6 +53,13 @@ def infer_image(request):
             return JsonResponse({"error": "Server is missing ROBOFLOW_API_KEY"}, status=500)
         if not project_id:
             return JsonResponse({"error": "ROBOFLOW_PROJECT is required"}, status=400)
+        if version.lower() == "latest":
+            if not workspace_id:
+                return JsonResponse(
+                    {"error": "ROBOFLOW_WORKSPACE is required when ROBOFLOW_INFER_VERSION is latest"},
+                    status=400,
+                )
+            version = _latest_trained_version(api_key, workspace_id, project_id)
 
         response = requests.post(
             f"https://classify.roboflow.com/{project_id}/{version}",
@@ -69,6 +81,50 @@ def infer_image(request):
     except Exception as e:
         logger.exception("Failed to process inference request")
         return JsonResponse({"error": str(e)}, status=500)
+
+
+def _latest_trained_version(api_key, workspace_id, project_id):
+    response = requests.get(
+        f"https://api.roboflow.com/{workspace_id}/{project_id}",
+        params={"api_key": api_key},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    versions = payload.get("versions") or payload.get("project", {}).get("versions") or []
+    trained_versions = []
+    fallback_versions = []
+    for item in versions:
+        version_number = _version_number(item)
+        if version_number is None:
+            continue
+        fallback_versions.append(version_number)
+        if isinstance(item, dict) and item.get("model"):
+            trained_versions.append(version_number)
+
+    candidates = trained_versions or fallback_versions
+    if not candidates:
+        raise ValueError("Roboflow project response did not include versions")
+    return str(max(candidates))
+
+
+def _version_number(value):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.rsplit("/", 1)[-1])
+        except ValueError:
+            return None
+    if isinstance(value, dict):
+        for key in ("version", "id", "name", "number"):
+            number = _version_number(value.get(key))
+            if number is not None:
+                return number
+    return None
 
 @csrf_exempt
 def trigger_training(request):

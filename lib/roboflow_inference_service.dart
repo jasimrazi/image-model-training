@@ -36,7 +36,10 @@ class RoboflowInferenceService {
   static Future<HostedInferenceResult> scan(File image) async {
     final project =
         dotenv.env['ROBOFLOW_PROJECT'] ?? dotenv.env['PROJECT'] ?? '';
-    final configuredVersion = dotenv.env['ROBOFLOW_INFER_VERSION'] ?? '';
+    final workspace =
+        dotenv.env['ROBOFLOW_WORKSPACE'] ?? dotenv.env['WORKSPACE'] ?? '';
+    final configuredVersion =
+        (dotenv.env['ROBOFLOW_INFER_VERSION'] ?? '').trim();
 
     final uri = _backendInferenceUri();
     if (uri == null) {
@@ -52,7 +55,11 @@ class RoboflowInferenceService {
       if (project.isNotEmpty) {
         request.fields['project_id'] = project;
       }
-      if (configuredVersion.isNotEmpty) {
+      if (workspace.isNotEmpty) {
+        request.fields['workspace_id'] = workspace;
+      }
+      if (configuredVersion.isNotEmpty &&
+          configuredVersion.toLowerCase() != 'latest') {
         request.fields['version'] = configuredVersion;
       }
 
@@ -68,7 +75,7 @@ class RoboflowInferenceService {
       );
 
       final streamed = await request.send().timeout(
-        const Duration(seconds: 45),
+        const Duration(seconds: 120),
       );
       final response = await http.Response.fromStream(streamed);
 
