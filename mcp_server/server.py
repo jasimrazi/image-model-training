@@ -10,11 +10,21 @@ from mcp.server.fastmcp import FastMCP
 
 load_dotenv()
 
-mcp = FastMCP("vision")
-
 
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
+
+
+def _env_int(name: str, default: int) -> int:
+    value = _env(name)
+    return int(value) if value else default
+
+
+mcp = FastMCP(
+    "vision",
+    host=_env("FASTMCP_HOST", "0.0.0.0"),
+    port=_env_int("PORT", _env_int("FASTMCP_PORT", 8000)),
+)
 
 
 def _backend_inference_url() -> str:
@@ -61,13 +71,6 @@ def _response_payload(response: requests.Response) -> dict[str, Any]:
     }
 
 
-def _auth_headers() -> dict[str, str]:
-    token = _env("MCP_CLIENT_TOKEN")
-    if not token:
-        raise ValueError("Set MCP_CLIENT_TOKEN before using private backend tools.")
-    return {"X-MCP-Client-Token": token}
-
-
 @mcp.tool()
 def scan_image(
     image_path: str | None = None,
@@ -79,7 +82,6 @@ def scan_image(
 
     response = requests.post(
         _backend_inference_url(),
-        headers=_auth_headers(),
         files={"image": (filename, image_bytes)},
         timeout=45,
     )
@@ -112,7 +114,6 @@ def upload_training_images(
 
     response = requests.post(
         _backend_training_url(),
-        headers=_auth_headers(),
         data={
             "workspace_id": workspace,
             "project_id": project,
@@ -134,4 +135,4 @@ def backend_health() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport=_env("MCP_TRANSPORT", "stdio"))

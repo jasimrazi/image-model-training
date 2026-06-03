@@ -23,12 +23,9 @@ Set these in your shell or in `mcp_server/.env`:
 
 ```text
 BACKEND_BASE_URL=https://image-model-training.onrender.com
-MCP_CLIENT_TOKEN=generate-a-long-random-secret
 ROBOFLOW_WORKSPACE=your-workspace
 ROBOFLOW_PROJECT=your-project
 ```
-
-Set the same `MCP_CLIENT_TOKEN` value in the Render backend environment. Requests without this token are rejected by the backend.
 
 Optional direct endpoint overrides:
 
@@ -49,11 +46,35 @@ Example stdio configuration:
       "args": ["C:/Users/Elara/Desktop/vision/mcp_server/server.py"],
       "env": {
         "BACKEND_BASE_URL": "https://image-model-training.onrender.com",
-        "MCP_CLIENT_TOKEN": "generate-a-long-random-secret",
         "ROBOFLOW_WORKSPACE": "your-workspace",
         "ROBOFLOW_PROJECT": "your-project"
       }
     }
   }
 }
+```
+
+## Render Hosting
+
+Deploy `mcp_server/render.yaml` as a Render Blueprint, or create a Python web service with:
+
+```text
+Root Directory: mcp_server
+Build Command: pip install -r requirements.txt
+Start Command: python server.py
+```
+
+Set these Render environment variables:
+
+```text
+MCP_TRANSPORT=streamable-http
+BACKEND_BASE_URL=https://image-model-training.onrender.com
+ROBOFLOW_WORKSPACE=your-workspace
+ROBOFLOW_PROJECT=your-project
+```
+
+After deploy, use the remote MCP URL:
+
+```text
+https://your-render-service.onrender.com/mcp
 ```

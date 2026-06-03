@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: vision-mcp-server
+    runtime: python
+    rootDir: mcp_server
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: MCP_TRANSPORT
+        value: streamable-http
+      - key: BACKEND_BASE_URL
+        value: https://image-model-training.onrender.com
+      - key: ROBOFLOW_WORKSPACE
+        sync: false
+      - key: ROBOFLOW_PROJECT
+        sync: false
