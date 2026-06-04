@@ -40,6 +40,7 @@ AUTH0_REQUIRED_SCOPES=mcp:use
 
 `AUTH0_JWKS_URL` is optional if `AUTH0_ISSUER_URL` is set. The server derives it from the issuer URL.
 `AUTH0_CLIENT_ID` is included for deployment documentation and client setup; token validation uses the Auth0 audience and issuer.
+For OpenCode/Auth0 OAuth, the Auth0 API identifier must match `PUBLIC_MCP_URL` because OpenCode sends the MCP resource URL as the OAuth `resource` value.
 
 Optional direct endpoint overrides:
 
@@ -85,7 +86,7 @@ MCP_TRANSPORT=streamable-http
 BACKEND_BASE_URL=https://image-model-training.onrender.com
 PUBLIC_MCP_URL=https://your-render-service.onrender.com/mcp
 AUTH0_ISSUER_URL=https://your-tenant.us.auth0.com/
-AUTH0_AUDIENCE=your-auth0-api-identifier
+AUTH0_AUDIENCE=https://your-render-service.onrender.com/mcp
 AUTH0_CLIENT_ID=your-auth0-application-client-id
 AUTH0_JWKS_URL=https://your-tenant.us.auth0.com/.well-known/jwks.json
 AUTH0_REQUIRED_SCOPES=mcp:use

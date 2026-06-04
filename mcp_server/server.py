@@ -66,9 +66,11 @@ class Auth0TokenVerifier:
                 issuer=self.issuer_url,
             )
         except PyJWTError:
+            print(f"JWT decode failed: {e}")
             return None
 
         scopes = _token_scopes(claims)
+        print(f"Token scopes: {scopes}, Required: {self.required_scopes}")
         if any(scope not in scopes for scope in self.required_scopes):
             return None
 
