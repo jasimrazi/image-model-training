@@ -5,11 +5,19 @@ import os
 import shutil
 import tempfile
 import threading
+from urllib.parse import urlparse
+
 import requests
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 logger = logging.getLogger(__name__)
+
+MAX_IMAGE_URL_BYTES = 10 * 1024 * 1024
+
+
+class ImageUrlError(ValueError):
+    pass
 
 
 def _authorized(request):
@@ -20,6 +28,36 @@ def _authorized(request):
     return provided_token == expected_token
 
 
+def _request_data(request):
+    if request.content_type and request.content_type.startswith("application/json"):
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, dict):
+            return payload
+        return None
+    return request.POST
+
+
+def _download_image_url(image_url):
+    parsed = urlparse(image_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ImageUrlError("image_url must be an absolute http(s) URL")
+
+    response = requests.get(image_url, stream=True, timeout=20)
+    response.raise_for_status()
+
+    content = bytearray()
+    for chunk in response.iter_content(chunk_size=8192):
+        if not chunk:
+            continue
+        content.extend(chunk)
+        if len(content) > MAX_IMAGE_URL_BYTES:
+            raise ImageUrlError("image_url response is too large")
+    return bytes(content)
+
+
 @csrf_exempt
 def infer_image(request):
     if request.method != "POST":
@@ -28,23 +66,30 @@ def infer_image(request):
         return JsonResponse({"error": "Unauthorized"}, status=401)
 
     try:
+        data = _request_data(request)
+        if data is None:
+            return JsonResponse({"error": "Invalid JSON request body"}, status=400)
+
         image = request.FILES.get("image")
-        if image is None:
-            return JsonResponse({"error": "image is required"}, status=400)
+        image_url = str(data.get("image_url", "")).strip()
+        if image is None and not image_url:
+            return JsonResponse({"error": "image or image_url is required"}, status=400)
+
+        image_bytes = image.read() if image is not None else _download_image_url(image_url)
 
         api_key = os.environ.get("ROBOFLOW_API_KEY", "").strip()
         project_id = (
-            request.POST.get("project_id", "").strip()
+            str(data.get("project_id", "")).strip()
             or os.environ.get("ROBOFLOW_PROJECT", "").strip()
             or os.environ.get("PROJECT", "").strip()
         )
         workspace_id = (
-            request.POST.get("workspace_id", "").strip()
+            str(data.get("workspace_id", "")).strip()
             or os.environ.get("ROBOFLOW_WORKSPACE", "").strip()
             or os.environ.get("WORKSPACE", "").strip()
         )
         version = (
-            request.POST.get("version", "").strip()
+            str(data.get("version", "")).strip()
             or os.environ.get("ROBOFLOW_INFER_VERSION", "").strip()
             or "latest"
         )
@@ -64,7 +109,7 @@ def infer_image(request):
         response = requests.post(
             f"https://classify.roboflow.com/{project_id}/{version}",
             params={"api_key": api_key},
-            data=base64.b64encode(image.read()).decode("utf-8"),
+            data=base64.b64encode(image_bytes).decode("utf-8"),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
@@ -75,6 +120,8 @@ def infer_image(request):
             payload = {"raw": response.text}
 
         return JsonResponse(payload, status=response.status_code, safe=False)
+    except ImageUrlError as e:
+        return JsonResponse({"error": str(e)}, status=400)
     except requests.RequestException as e:
         logger.exception("Roboflow inference request failed")
         return JsonResponse({"error": str(e)}, status=502)

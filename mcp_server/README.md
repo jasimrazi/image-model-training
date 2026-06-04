@@ -4,7 +4,7 @@ Python MCP server exposing this app's core image workflows as MCP tools.
 
 ## Tools
 
-- `scan_image` - classify one image through the Render/Django inference endpoint.
+- `scan_image` - classify one image through the Render/Django inference endpoint using `image_path`, `image_base64`, or `image_url`.
 - `upload_training_images` - upload labeled images and trigger the backend training flow.
 - `backend_health` - show the backend URLs the MCP server will call.
 

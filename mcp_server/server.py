@@ -177,8 +177,17 @@ def _response_payload(response: requests.Response) -> dict[str, Any]:
 def scan_image(
     image_path: str | None = None,
     image_base64: str | None = None,
+    image_url: str | None = None,
 ) -> dict[str, Any]:
     """Classify an image through the Vision Render backend."""
+    if image_url:
+        response = requests.post(
+            _backend_inference_url(),
+            data={"image_url": image_url},
+            timeout=45,
+        )
+        return _response_payload(response)
+
     image_bytes = _read_image(image_path, image_base64)
     filename = Path(image_path).name if image_path else "image.jpg"
 
