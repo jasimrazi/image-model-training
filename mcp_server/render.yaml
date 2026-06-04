@@ -10,6 +10,18 @@ services:
         value: streamable-http
       - key: BACKEND_BASE_URL
         value: https://image-model-training.onrender.com
+      - key: PUBLIC_MCP_URL
+        sync: false
+      - key: AUTH0_ISSUER_URL
+        sync: false
+      - key: AUTH0_AUDIENCE
+        sync: false
+      - key: AUTH0_CLIENT_ID
+        sync: false
+      - key: AUTH0_JWKS_URL
+        sync: false
+      - key: AUTH0_REQUIRED_SCOPES
+        value: mcp:use
       - key: ROBOFLOW_WORKSPACE
         sync: false
       - key: ROBOFLOW_PROJECT

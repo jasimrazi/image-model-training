@@ -3,8 +3,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+import jwt
 import requests
 from dotenv import load_dotenv
+from jwt import PyJWKClient
+from jwt.exceptions import PyJWTError
+from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 
 
@@ -20,10 +25,105 @@ def _env_int(name: str, default: int) -> int:
     return int(value) if value else default
 
 
+def _env_list(name: str) -> list[str]:
+    value = _env(name)
+    if not value:
+        return []
+    return [item.strip() for item in value.replace(",", " ").split() if item.strip()]
+
+
+def _mcp_transport() -> str:
+    return _env("MCP_TRANSPORT", "stdio")
+
+
+def _public_mcp_url() -> str:
+    explicit_url = _env("PUBLIC_MCP_URL")
+    if explicit_url:
+        return explicit_url
+
+    render_url = _env("RENDER_EXTERNAL_URL")
+    if render_url:
+        return f"{render_url.rstrip('/')}/mcp"
+
+    return ""
+
+
+class Auth0TokenVerifier:
+    def __init__(self, issuer_url: str, audience: str, jwks_url: str, required_scopes: list[str]) -> None:
+        self.issuer_url = issuer_url
+        self.audience = audience
+        self.required_scopes = required_scopes
+        self.jwks_client = PyJWKClient(jwks_url)
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        try:
+            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            claims = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience=self.audience,
+                issuer=self.issuer_url,
+            )
+        except PyJWTError:
+            return None
+
+        scopes = _token_scopes(claims)
+        if any(scope not in scopes for scope in self.required_scopes):
+            return None
+
+        return AccessToken(
+            token=token,
+            client_id=str(claims.get("azp") or claims.get("client_id") or claims.get("sub") or "auth0"),
+            scopes=scopes,
+            expires_at=claims.get("exp"),
+            resource=self.audience,
+            subject=claims.get("sub"),
+            claims=claims,
+        )
+
+
+def _token_scopes(claims: dict[str, Any]) -> list[str]:
+    scope = claims.get("scope")
+    if isinstance(scope, str):
+        return [item for item in scope.split() if item]
+    permissions = claims.get("permissions")
+    if isinstance(permissions, list):
+        return [str(item) for item in permissions]
+    return []
+
+
+def _auth_settings() -> tuple[AuthSettings | None, Auth0TokenVerifier | None]:
+    if _mcp_transport() == "stdio":
+        return None, None
+
+    issuer_url = _env("AUTH0_ISSUER_URL")
+    audience = _env("AUTH0_AUDIENCE")
+    jwks_url = _env("AUTH0_JWKS_URL") or (f"{issuer_url.rstrip('/')}/.well-known/jwks.json" if issuer_url else "")
+    public_url = _public_mcp_url()
+    if not issuer_url or not audience or not jwks_url or not public_url:
+        raise RuntimeError(
+            "Set AUTH0_ISSUER_URL, AUTH0_AUDIENCE, and PUBLIC_MCP_URL before running remote MCP auth."
+        )
+
+    required_scopes = _env_list("AUTH0_REQUIRED_SCOPES")
+    auth_settings = AuthSettings(
+        issuer_url=issuer_url,
+        resource_server_url=public_url,
+        required_scopes=required_scopes,
+    )
+    return auth_settings, Auth0TokenVerifier(issuer_url, audience, jwks_url, required_scopes)
+
+
+auth_settings, token_verifier = _auth_settings()
+
+
 mcp = FastMCP(
     "vision",
     host=_env("FASTMCP_HOST", "0.0.0.0"),
     port=_env_int("PORT", _env_int("FASTMCP_PORT", 8000)),
+    auth=auth_settings,
+    token_verifier=token_verifier,
 )
 
 
@@ -135,4 +235,4 @@ def backend_health() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport=_env("MCP_TRANSPORT", "stdio"))
+    mcp.run(transport=_mcp_transport())

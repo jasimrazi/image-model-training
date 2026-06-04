@@ -27,6 +27,20 @@ ROBOFLOW_WORKSPACE=your-workspace
 ROBOFLOW_PROJECT=your-project
 ```
 
+Remote HTTP deployments also require Auth0 bearer-token auth:
+
+```text
+PUBLIC_MCP_URL=https://your-render-service.onrender.com/mcp
+AUTH0_ISSUER_URL=https://your-tenant.us.auth0.com/
+AUTH0_AUDIENCE=your-auth0-api-identifier
+AUTH0_CLIENT_ID=your-auth0-application-client-id
+AUTH0_JWKS_URL=https://your-tenant.us.auth0.com/.well-known/jwks.json
+AUTH0_REQUIRED_SCOPES=mcp:use
+```
+
+`AUTH0_JWKS_URL` is optional if `AUTH0_ISSUER_URL` is set. The server derives it from the issuer URL.
+`AUTH0_CLIENT_ID` is included for deployment documentation and client setup; token validation uses the Auth0 audience and issuer.
+
 Optional direct endpoint overrides:
 
 ```text
@@ -69,6 +83,12 @@ Set these Render environment variables:
 ```text
 MCP_TRANSPORT=streamable-http
 BACKEND_BASE_URL=https://image-model-training.onrender.com
+PUBLIC_MCP_URL=https://your-render-service.onrender.com/mcp
+AUTH0_ISSUER_URL=https://your-tenant.us.auth0.com/
+AUTH0_AUDIENCE=your-auth0-api-identifier
+AUTH0_CLIENT_ID=your-auth0-application-client-id
+AUTH0_JWKS_URL=https://your-tenant.us.auth0.com/.well-known/jwks.json
+AUTH0_REQUIRED_SCOPES=mcp:use
 ROBOFLOW_WORKSPACE=your-workspace
 ROBOFLOW_PROJECT=your-project
 ```
@@ -78,3 +98,28 @@ After deploy, use the remote MCP URL:
 ```text
 https://your-render-service.onrender.com/mcp
 ```
+
+Remote MCP clients must send an Auth0 access token for the configured API audience:
+
+```http
+Authorization: Bearer <auth0-access-token>
+```
+
+The token must include the `mcp:use` scope when `AUTH0_REQUIRED_SCOPES=mcp:use` is configured.
+
+## Auth0 Application
+
+In the Auth0 application used by OpenCode, add this callback URL:
+
+```text
+http://127.0.0.1:19876/mcp/oauth/callback
+```
+
+If Auth0 prompts for them, also add:
+
+```text
+Allowed Logout URLs: http://127.0.0.1:19876
+Allowed Web Origins: http://127.0.0.1:19876
+```
+
+When OpenCode adds the remote MCP server at `https://your-render-service.onrender.com/mcp`, it should discover the protected-resource metadata, open Auth0/Google login on first use, then call the MCP endpoint with a bearer token.
