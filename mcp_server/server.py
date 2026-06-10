@@ -65,7 +65,7 @@ class Auth0TokenVerifier:
                 audience=self.audience,
                 issuer=self.issuer_url,
             )
-        except PyJWTError:
+        except PyJWTError as e:
             print(f"JWT decode failed: {e}")
             return None
 
